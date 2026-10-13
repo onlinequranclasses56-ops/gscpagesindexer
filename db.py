@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS manual_slots (
 );
 """
 
+SCHEMA_AI = """
+CREATE TABLE IF NOT EXISTS ai_reports (
+    property TEXT PRIMARY KEY,
+    report TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -72,6 +80,7 @@ def connect(path):
     conn.execute(SCHEMA_SETTINGS)
     conn.execute(SCHEMA_SNAPSHOTS)
     conn.execute(SCHEMA_SLOTS)
+    conn.execute(SCHEMA_AI)
     # migrate: priority column for DBs created by older versions
     cols = [r[1] for r in conn.execute("PRAGMA table_info(urls)").fetchall()]
     if "priority" not in cols:
@@ -202,6 +211,7 @@ def delete_property(conn, pid):
     conn.execute("DELETE FROM urls WHERE property=?", (p["site_url"],))
     conn.execute("DELETE FROM snapshots WHERE property=?", (p["site_url"],))
     conn.execute("DELETE FROM manual_slots WHERE property=?", (p["site_url"],))
+    conn.execute("DELETE FROM ai_reports WHERE property=?", (p["site_url"],))
     conn.execute("DELETE FROM properties WHERE id=?", (pid,))
     conn.commit()
 
@@ -325,6 +335,24 @@ def list_urls(conn, prop, filt="all", search="", limit=500, offset=0):
         params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def save_ai_report(conn, prop, report):
+    conn.execute(
+        "INSERT INTO ai_reports(property, report, created_at) VALUES(?,?,?) "
+        "ON CONFLICT(property) DO UPDATE SET report=excluded.report, "
+        "created_at=excluded.created_at",
+        (prop, report, utcnow()),
+    )
+    conn.commit()
+
+
+def get_ai_report(conn, prop):
+    r = conn.execute(
+        "SELECT report, created_at FROM ai_reports WHERE property=?",
+        (prop,),
+    ).fetchone()
+    return dict(r) if r else None
 
 
 def set_http_status(conn, prop, url, status):

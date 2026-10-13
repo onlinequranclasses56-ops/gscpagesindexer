@@ -54,6 +54,14 @@ def indexing_service(key_path):
     return build("indexing", "v3", credentials=get_credentials(key_path))
 
 
+def list_sites(sc):
+    """All Search Console properties the credentials can access (exact siteUrls)."""
+    resp = _call_with_retry(lambda: sc.sites().list().execute())
+    return sorted(
+        s["siteUrl"] for s in resp.get("siteEntry", []) if s.get("siteUrl")
+    )
+
+
 def inspect_url(sc, site_url, inspection_url):
     """Check one URL's index status. Costs 1 of 2000/day/property."""
     resp = _call_with_retry(

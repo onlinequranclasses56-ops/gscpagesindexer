@@ -26,6 +26,12 @@ client sites): in the service's **Environment** tab → **Environment Variables*
 The app will ask for it on every visit. (Do NOT use "Generate value" — you
 need to know the password yourself.)
 
+**AI Index Analyst (optional):** each property page has an "Analyze with AI"
+button that reads the property's real coverage data and suggests prioritized
+actions. To enable it, add an Environment Variable `AI_API_KEY` with your
+provider key (works with any OpenAI-compatible API; optional `AI_BASE_URL`
+and `AI_MODEL`). The AI never sees your Google keys.
+
 ## Option 2 — PythonAnywhere
 
 1. Upload `gsc-indexer.zip` via the **Files** tab and unzip it.

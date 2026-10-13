@@ -42,6 +42,20 @@
 </div>
 <div>
 <div class="card">
+  <h2>🔍 Discover from Google</h2>
+  <div class="mut" style="margin-bottom:8px">One click: import every Search Console property your service account(s) can access — no typing domains.</div>
+  <form method="post" action="/settings/discover-sites">
+    <button class="btn sm">Discover my GSC properties</button>
+  </form>
+  {% if discovered %}
+  <form method="post" action="/settings/import-discovered" style="margin-top:10px">
+    <div class="mut">{{ discovered|length }} new {{ 'property' if discovered|length == 1 else 'properties' }} found:</div>
+    <div class="mono" style="max-height:150px;overflow:auto;margin:6px 0">{% for s in discovered %}<div>{{ s }}</div>{% endfor %}</div>
+    <button class="btn sm">Import all {{ discovered|length }}</button>
+  </form>
+  {% endif %}
+</div>
+<div class="card">
   <h2>Bulk import — 100 sites</h2>
   <form method="post" action="/properties/bulk-import">
     <textarea name="sites" placeholder="client1.com&#10;client2.com&#10;https://client3.com/"></textarea>

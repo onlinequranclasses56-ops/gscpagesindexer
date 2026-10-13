@@ -17,6 +17,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    Response, session, url_for)
 
+import ai
 import db as store
 import gsc
 import indexer
@@ -317,6 +318,10 @@ def property_page(pid):
             "urls": store.list_urls(conn, site, filt, q, limit=500),
             "indexing_enabled": store.get_setting(conn, "use_indexing_api") == "true",
             "state": state,
+            "ai_report": store.get_ai_report(conn, site),
+            "ai_running": pid in state.get("ai_running", set()),
+            "ai_configured": ai.is_configured(),
+            "ai_error": state.get("ai_errors", {}).pop(pid, None),
         }
         return render_template("property.html", **ctx)
     finally:
@@ -576,9 +581,115 @@ def settings():
         props = store.list_properties(conn)
         sa_info = _sa_emails(parse_keys(cfg.get("service_account_keys")))
         return render_template("settings.html", cfg=cfg, props=props, state=state,
-                               sa_info=sa_info)
+                               sa_info=sa_info,
+                               discovered=state.get("discovered"))
     finally:
         conn.close()
+
+
+# ---------------- GSC property discovery ----------------
+
+@app.post("/settings/discover-sites")
+def discover_sites():
+    """One click: list every Search Console property the service account(s)
+    can access, so the user can import them all without typing domains."""
+    conn = db()
+    try:
+        keys = parse_keys(store.get_setting(conn, "service_account_keys"))
+        found = []
+        errors = []
+        for k in keys:
+            try:
+                found += gsc.list_sites(gsc.searchconsole_service(k))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{k}: {e}"[:160])
+        found = sorted(set(found))
+        existing = {p["site_url"] for p in store.list_properties(conn)}
+        state["discovered"] = [s for s in found if s not in existing]
+        if errors:
+            flash("Discovery errors: " + " | ".join(errors), "error")
+        flash(f"Found {len(found)} properties in Google, "
+              f"{len(state['discovered'])} new.", "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/import-discovered")
+def import_discovered():
+    conn = db()
+    try:
+        sites = state.pop("discovered", [])
+        n = 0
+        for site in sites:
+            try:
+                store.add_property(conn, site, indexer.discover_sitemaps(site))
+                n += 1
+            except Exception:  # noqa: BLE001
+                pass
+        flash(f"Imported {n} properties. Run a sync to discover their URLs.",
+              "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("settings"))
+
+
+# ---------------- AI index analyst ----------------
+
+def _ai_worker(pid, site):
+    conn = db()
+    try:
+        s = store.summary(conn, site)
+        snaps = store.get_snapshots(conn, site, 2)
+        trend = (snaps["indexed"][-1] - snaps["indexed"][-2]
+                 if len(snaps["indexed"]) >= 2 else None)
+        data = {
+            "site_url": site,
+            "total": s["total"], "indexed": s["indexed"],
+            "pct": round(100 * s["indexed"] / s["total"]) if s["total"] else 0,
+            "coverage": store.coverage_breakdown(conn, site),
+            "stuck": store.stuck_count(conn, site),
+            "dead": store.dead_count(conn, site),
+            "trend": trend,
+            "submitted": s["submitted"],
+            "unindexed_sample": [r["url"] for r in
+                                 store.list_urls(conn, site, "unindexed",
+                                                 limit=30)],
+        }
+        ok, text = ai.analyze(data)
+        if ok:
+            store.save_ai_report(conn, site, text)
+        else:
+            state.setdefault("ai_errors", {})[pid] = text
+    finally:
+        state.get("ai_running", set()).discard(pid)
+        conn.close()
+
+
+@app.post("/p/<int:pid>/analyze")
+def analyze_property(pid):
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        if not ai.is_configured():
+            flash("AI not configured — set AI_API_KEY in Render → "
+                  "Environment → Variables.", "error")
+            return redirect(url_for("property_page", pid=pid))
+        running = state.setdefault("ai_running", set())
+        if pid in running:
+            flash("Analysis already running — refresh in a bit.", "ok")
+        else:
+            running.add(pid)
+            threading.Thread(target=_ai_worker,
+                             args=(pid, p["site_url"]),
+                             daemon=True).start()
+            flash("AI analysis started — refresh this page in a minute.", "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("property_page", pid=pid))
 
 
 # ---------------- scheduler ----------------

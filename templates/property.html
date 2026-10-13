@@ -42,6 +42,26 @@
 </div>
 
 <div class="card">
+  <h2>🤖 AI Index Analyst</h2>
+  {% if not ai_configured %}
+  <div class="mut">Set <code>AI_API_KEY</code> in Render → Environment → Variables to enable (works with any OpenAI-compatible API). The AI reads this property's real coverage data and suggests prioritized actions — it never sees your Google keys.</div>
+  {% else %}
+  <form method="post" action="/p/{{ p.id }}/analyze" style="margin-bottom:10px">
+    <button class="btn sm" {% if ai_running %}disabled{% endif %}>{% if ai_running %}Analyzing…{% else %}Analyze with AI{% endif %}</button>
+  </form>
+  {% endif %}
+  {% if ai_error %}<div class="flash error">{{ ai_error }}</div>{% endif %}
+  {% if ai_report %}
+  <div class="mut">Generated {{ ai_report.created_at[:16].replace('T',' ') }} · based on this property's live data</div>
+  <div style="white-space:pre-wrap;margin-top:8px">{{ ai_report.report }}</div>
+  {% elif ai_running %}
+  <div class="mut"><span class="spin"></span> Analyzing… refresh this page shortly.</div>
+  {% elif ai_configured %}
+  <div class="mut">No analysis yet — click the button above.</div>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>URLs</h2>
   <div class="tabs">
     {% for f in filters %}<a href="/p/{{ p.id }}?f={{ f }}{% if q %}&q={{ q }}{% endif %}" class="{{ 'on' if filt==f else '' }}">{{ f }}</a>{% endfor %}
