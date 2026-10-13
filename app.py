@@ -10,7 +10,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -90,6 +90,9 @@ DEFAULT_SETTINGS = {
     "submit_cooldown_hours": "48",
     "manual_daily_cap": "10",
     "run_time": "09:00",
+    "auto_ai_analysis": "false",   # auto-analyze troubled properties after sync
+    "auto_ai_max_per_run": "5",    # cap AI analyses per pipeline run
+    "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
 }
 
 DB_PATH = os.environ.get("GSC_DB_PATH") or DEFAULT_SETTINGS["db_path"]
@@ -172,6 +175,51 @@ def normalize_site(line):
 
 # ---------------- background pipeline ----------------
 
+def _auto_ai_pass(cfg):
+    """After a sync, auto-analyze the most troubled properties with the AI.
+
+    Only runs when enabled in Settings AND AI_API_KEY is set. Targets
+    properties with stuck (>7d unindexed) or deindexed pages, skips
+    push-only properties and ones analyzed recently. Bounded per run.
+    """
+    if cfg.get("auto_ai_analysis") != "true" or not ai.is_configured():
+        return 0
+    try:
+        max_n = max(1, int(cfg.get("auto_ai_max_per_run", 5) or 5))
+        redays = max(1, int(cfg.get("ai_reanalyze_days", 7) or 7))
+    except (ValueError, TypeError):
+        max_n, redays = 5, 7
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=redays)).isoformat()
+    conn = db()
+    try:
+        cands = []
+        for p in store.list_properties(conn, active_only=True):
+            if p.get("push_only"):
+                continue
+            site = p["site_url"]
+            stuck = store.stuck_count(conn, site)
+            snaps = store.get_snapshots(conn, site, 2)
+            trend = (snaps["indexed"][-1] - snaps["indexed"][-2]
+                     if len(snaps["indexed"]) >= 2 else 0)
+            if stuck == 0 and trend >= 0:
+                continue  # healthy — nothing to analyze
+            rep = store.get_ai_report(conn, site)
+            if rep and rep.get("created_at", "") >= cutoff:
+                continue  # analyzed recently
+            cands.append((stuck + max(0, -trend) * 2, p["id"], site))
+        cands.sort(reverse=True)
+        n = 0
+        for _, pid, site in cands[:max_n]:
+            try:
+                _ai_worker(pid, site)  # synchronous; pipeline runs in background
+                n += 1
+            except Exception:  # noqa: BLE001 — one failure never blocks the rest
+                pass
+        return n
+    finally:
+        conn.close()
+
+
 def run_pipeline(property_ids=None):
     if state["running"]:
         return
@@ -219,6 +267,9 @@ def run_pipeline(property_ids=None):
         state["last_run"] = utcnow()
         state["last_summary"] = (f"{done} properties synced, {failed} failed, "
                                  f"{pushed} URLs pushed")
+        ai_n = _auto_ai_pass(cfg)
+        if ai_n:
+            state["last_summary"] += f", {ai_n} AI-analyzed"
     except Exception as e:  # noqa: BLE001
         state["last_error"] = str(e)
     finally:
@@ -625,7 +676,7 @@ def settings():
                 for key in DEFAULT_SETTINGS:
                     if key in ("db_path", "service_account_key"):
                         continue
-                    if key == "use_indexing_api":
+                    if key in ("use_indexing_api", "auto_ai_analysis"):
                         store.set_setting(conn, key,
                                           "true" if form.get(key) else "false")
                     elif key in form:

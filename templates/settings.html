@@ -37,6 +37,13 @@
       <div style="flex:1;min-width:140px"><label>Resubmit cooldown (hours)</label><input type="text" name="submit_cooldown_hours" value="{{ cfg.submit_cooldown_hours }}"></div>
     </div>
     <div class="mut" style="margin-top:6px">Quota: 200/day per GCP project, auto-rotated across all keys above.</div>
+    <h3>🤖 AI automation</h3>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--txt)"><input type="checkbox" name="auto_ai_analysis" value="1" {% if cfg.auto_ai_analysis=="true" %}checked{% endif %} style="width:auto"> Auto-analyze troubled properties after each sync</label>
+    <div class="mut" style="margin:6px 0">After every sync, the AI automatically analyzes properties with stuck (&gt;7d unindexed) or deindexed pages — reports wait for you on each property page. Requires <code>AI_API_KEY</code> env var.</div>
+    <div class="row" style="margin-top:6px">
+      <div style="flex:1;min-width:140px"><label>Max AI analyses / run</label><input type="text" name="auto_ai_max_per_run" value="{{ cfg.auto_ai_max_per_run }}"></div>
+      <div style="flex:1;min-width:140px"><label>Re-analyze after (days)</label><input type="text" name="ai_reanalyze_days" value="{{ cfg.ai_reanalyze_days }}"></div>
+    </div>
     <button class="btn" style="margin-top:14px">Save settings</button>
   </form>
 </div>
