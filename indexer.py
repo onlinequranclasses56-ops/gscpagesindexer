@@ -254,7 +254,9 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
             cool = int(cfg.get("submit_cooldown_hours", 48))
             subs = store.candidates_for_submission(conn, site, total_budget, cool)
             action = cfg.get("indexing_action", "URL_UPDATED")
-            for u in subs:
+            i = 0
+            while i < len(subs):
+                u = subs[i]
                 with push_lock:
                     svc = next((p for p in pushers if p["budget"] > 0), None)
                     if svc:
@@ -265,11 +267,17 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                     gsc.publish_url(svc["svc"], u, action)
                     store.mark_submitted(conn, site, u, f"indexing-api:{action}")
                     pushed += 1
+                    i += 1
                 except Exception as e:  # noqa: BLE001
+                    if gsc.is_quota_error(e):
+                        # This GCP project is out of quota — park it and retry
+                        # the SAME url on the next project's key.
+                        with push_lock:
+                            svc["budget"] = 0
+                        continue
                     with push_lock:
                         svc["budget"] += 1  # refund on failure
-                    if gsc.is_quota_error(e):
-                        break
+                    break
 
         # 4. sitemap resubmit — official crawl hint for general pages
         sc = _thread_sc(key_path)

@@ -532,7 +532,10 @@ def bulk_action(pid):
                 else:
                     act = store.get_setting(conn, "indexing_action", "URL_UPDATED")
                     ok, lock = 0, threading.Lock()
-                    for u in urls:
+                    urls = list(urls)
+                    i = 0
+                    while i < len(urls):
+                        u = urls[i]
                         with lock:
                             svc = next((x for x in pushers if x["budget"] > 0), None)
                             if svc:
@@ -544,7 +547,14 @@ def bulk_action(pid):
                             gsc.publish_url(svc["svc"], u, act)
                             store.mark_submitted(conn, site, u, f"manual-push:{act}")
                             ok += 1
+                            i += 1
                         except Exception as e:  # noqa: BLE001
+                            if gsc.is_quota_error(e):
+                                # Fail over: retry the SAME url on the next
+                                # project's key.
+                                with lock:
+                                    svc["budget"] = 0
+                                continue
                             with lock:
                                 svc["budget"] += 1
                             flash(f"Push stopped: {e}", "error")
