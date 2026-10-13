@@ -87,7 +87,10 @@
   {% endif %}
   {% if ai_error %}<div class="flash error">{{ ai_error }}</div>{% endif %}
   {% if ai_report %}
-  <div class="mut">Generated {{ ai_report.created_at[:16].replace('T',' ') }} · based on this property's live data</div>
+  <div class="row" style="justify-content:space-between">
+    <div class="mut">Generated {{ ai_report.created_at[:16].replace('T',' ') }} · based on this property's live data</div>
+    <a class="btn sm ghost" href="/p/{{ p.id }}/ai-report.md">⬇ Download report (.md)</a>
+  </div>
   <div style="white-space:pre-wrap;margin-top:8px">{{ ai_report.report }}</div>
   {% elif ai_running %}
   <div class="mut"><span class="spin"></span> Analyzing… refresh this page shortly.</div>
@@ -115,7 +118,7 @@
     {% for f in filters %}<a href="/p/{{ p.id }}?f={{ f }}{% if q %}&q={{ q }}{% endif %}" class="{{ 'on' if filt==f else '' }}">{{ f }}</a>{% endfor %}
   </div>
   <form method="get" action="/p/{{ p.id }}" style="margin-bottom:10px"><input type="hidden" name="f" value="{{ filt }}">
-    <div class="row"><input type="text" name="q" value="{{ q }}" placeholder="Search URL…" style="flex:1;min-width:200px"><button class="btn sm ghost">Search</button></div>
+    <div class="row"><input type="text" name="q" value="{{ q }}" placeholder="Search URL…" style="flex:1;min-width:200px"><button class="btn sm ghost">Search</button><a class="btn sm ghost" href="/p/{{ p.id }}/export?f={{ filt }}{% if q %}&q={{ q|urlencode }}{% endif %}" title="Download this filtered list as CSV">⬇ Export CSV</a></div>
   </form>
   <form method="post" action="/p/{{ p.id }}/bulk">
   <div class="row" style="margin-bottom:10px">

@@ -4,7 +4,9 @@
 Run:  python app.py   ->  http://127.0.0.1:5000
 Keep it on localhost (no login in this MVP).
 """
+import csv
 import hmac
+import io
 import json
 import os
 import re
@@ -385,6 +387,81 @@ def property_page(pid):
         return render_template("property.html", **ctx)
     finally:
         conn.close()
+
+
+def _slug(site):
+    return re.sub(r"[^a-z0-9]+", "-",
+                  site.replace("https://", "").replace("http://", "")
+                  .strip("/").lower()).strip("-") or "site"
+
+
+def _url_status(u):
+    if u.get("indexed"):
+        return "indexed"
+    if u.get("last_checked"):
+        return "not indexed"
+    return "unchecked"
+
+
+@app.get("/p/<int:pid>/export")
+def export_urls(pid):
+    """Download the currently filtered URL list as CSV — GSC-style export
+    for bulk technical-SEO work. Respects the active filter + search."""
+    filt = request.args.get("f", "all")
+    q = request.args.get("q", "").strip()
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        site = p["site_url"]
+        rows = store.list_urls(conn, site, filt, q, limit=100000)
+    finally:
+        conn.close()
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["URL", "Status", "Coverage", "First seen", "Last checked",
+                "Last submitted", "Submit attempts", "HTTP status",
+                "Priority"])
+    for u in rows:
+        w.writerow([
+            u["url"], _url_status(u), u.get("index_state") or "",
+            (u.get("first_seen") or "")[:19],
+            (u.get("last_checked") or "")[:19],
+            (u.get("last_submitted") or "")[:19],
+            u.get("submit_attempts") or 0, u.get("http_status") or "",
+            "yes" if u.get("priority") else "no",
+        ])
+    fname = f"{_slug(site)}_{filt}_{datetime.now(timezone.utc):%Y-%m-%d}.csv"
+    return Response(out.getvalue(), mimetype="text/csv",
+                    headers={"Content-Disposition":
+                             f"attachment; filename={fname}"})
+
+
+@app.get("/p/<int:pid>/ai-report.md")
+def download_ai_report(pid):
+    """Download the AI Index Analyst report as Markdown."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        site = p["site_url"]
+        rep = store.get_ai_report(conn, site)
+        if not rep:
+            flash("No AI report yet — run 'Analyze with AI' first.", "error")
+            return redirect(url_for("property_page", pid=pid))
+    finally:
+        conn.close()
+    md = (f"# AI Index Analysis — {site}\n\n"
+          f"_Generated: {(rep['created_at'] or '')[:16]}_\n\n"
+          f"{rep['report']}\n")
+    fname = f"{_slug(site)}_ai-report_{(rep['created_at'] or '')[:10]}.md"
+    return Response(md, mimetype="text/markdown",
+                    headers={"Content-Disposition":
+                             f"attachment; filename={fname}"})
 
 
 @app.post("/p/<int:pid>/push-only")
