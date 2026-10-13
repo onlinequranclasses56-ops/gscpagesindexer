@@ -7,6 +7,8 @@
 </div>
 {% if state.last_error %}<div class="flash error">Last run error: {{ state.last_error }}</div>{% endif %}
 {% if state.last_summary %}<div class="flash ok">{{ state.last_summary }} ({{ state.last_run[:16].replace('T',' ') }})</div>{% endif %}
+{% if deindexed_total %}<div class="flash error">▼ {{ deindexed_total }} page{{ 's' if deindexed_total != 1 }} deindexed since yesterday — review the properties below.</div>{% endif %}
+{% if newly_indexed_total %}<div class="flash ok">▲ {{ newly_indexed_total }} page{{ 's' if newly_indexed_total != 1 }} newly indexed since yesterday.</div>{% endif %}
 
 <div class="grid" style="margin-bottom:16px">
   <div class="card"><div class="mut">Properties</div><div class="stat">{{ totals.properties }}</div></div>
@@ -55,6 +57,7 @@
     <span class="mut">{{ p.indexed }}/{{ p.total }}</span>
     {% if p.stuck %}<span class="badge b-warn">{{ p.stuck }} stuck</span>{% endif %}
     {% if p.unchecked %}<span class="badge b-mut">{{ p.unchecked }} unchecked</span>{% endif %}
+    {% if p.trend %}<span class="badge {{ 'b-ok' if p.trend > 0 else 'b-bad' }}">{{ '+' if p.trend > 0 }}{{ p.trend }} vs yesterday</span>{% endif %}
   </div>
   <div class="row" style="margin-top:12px">
     <a class="btn sm" href="/p/{{ p.id }}">Open</a>

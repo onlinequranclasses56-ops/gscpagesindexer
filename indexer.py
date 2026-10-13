@@ -106,6 +106,39 @@ def _inspect_one(key_path, db_path, site, url):
         return ("err", str(e)[:300])
 
 
+def _http_status(url):
+    """Lightweight liveness check (headers only). None on network failure."""
+    try:
+        with requests.get(url, timeout=8, stream=True,
+                          headers={"User-Agent": "gsc-indexer/1.0"}) as r:
+            return r.status_code
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _check_dead_links(conn, site, limit=150):
+    """HEAD-check URLs never liveness-checked before; records http_status.
+    Bounded and best-effort — never breaks the pipeline."""
+    try:
+        rows = conn.execute(
+            "SELECT url FROM urls WHERE property=? AND http_status IS NULL LIMIT ?",
+            (site, limit),
+        ).fetchall()
+        urls = [r[0] for r in rows]
+        if not urls:
+            return 0
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            results = list(ex.map(lambda u: (u, _http_status(u)), urls))
+        n = 0
+        for u, st in results:
+            if st:
+                store.set_http_status(conn, site, u, st)
+                n += 1
+        return n
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
     """Run the full pipeline for one property. Thread-safe; returns a report."""
     site = prop["site_url"]
@@ -119,6 +152,9 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
             all_urls += fetch_sitemap_urls(sm)
         all_urls = list(dict.fromkeys(all_urls))  # dedupe, keep order
         added = store.upsert_new(conn, site, all_urls)
+
+        # 1b. dead-link hygiene (bounded, best-effort)
+        _check_dead_links(conn, site)
 
         # 2. index-status inspection (parallel workers)
         cap = int(cfg.get("daily_inspection_cap_per_property", 1500))

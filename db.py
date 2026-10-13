@@ -76,6 +76,9 @@ def connect(path):
     cols = [r[1] for r in conn.execute("PRAGMA table_info(urls)").fetchall()]
     if "priority" not in cols:
         conn.execute("ALTER TABLE urls ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+    # migrate: http_status for dead-link detection
+    if "http_status" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN http_status INTEGER")
     # indexes for 100-property scale
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_urls_lookup "
@@ -291,6 +294,7 @@ FILTERS = {
     "unchecked": "AND last_checked IS NULL",
     "submitted": "AND last_submitted IS NOT NULL",
     "stuck": "AND (indexed=0 OR indexed IS NULL) AND first_seen < datetime('now','-7 days')",
+    "dead": "AND http_status >= 400",
 }
 
 
@@ -315,12 +319,29 @@ def list_urls(conn, prop, filt="all", search="", limit=500, offset=0):
     params += [limit, offset]
     rows = conn.execute(
         f"""SELECT url, first_seen, last_checked, indexed, index_state,
-                   last_submitted, submit_attempts, priority
+                   last_submitted, submit_attempts, priority, http_status
             FROM urls WHERE property=? {where}
             ORDER BY priority DESC, first_seen DESC LIMIT ? OFFSET ?""",
         params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def set_http_status(conn, prop, url, status):
+    """Record the HTTP status seen when fetching a URL (dead-link hygiene)."""
+    conn.execute(
+        "UPDATE urls SET http_status=? WHERE property=? AND url=?",
+        (status, prop, url),
+    )
+    conn.commit()
+
+
+def dead_count(conn, prop):
+    r = conn.execute(
+        "SELECT COUNT(*) FROM urls WHERE property=? AND http_status >= 400",
+        (prop,),
+    ).fetchone()
+    return r[0] if r else 0
 
 
 def set_priority(conn, prop, urls, priority):

@@ -20,6 +20,12 @@
 The daily sync runs automatically on the server. One gunicorn worker is
 configured so the scheduler never double-runs.
 
+**Protect the dashboard with a password** (recommended — it manages all your
+client sites): in the service's **Environment** tab → **Environment Variables**
+→ add `GSC_INDEXER_PASSWORD` with a strong password you choose → **Save**.
+The app will ask for it on every visit. (Do NOT use "Generate value" — you
+need to know the password yourself.)
+
 ## Option 2 — PythonAnywhere
 
 1. Upload `gsc-indexer.zip` via the **Files** tab and unzip it.

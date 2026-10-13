@@ -4,6 +4,7 @@
 Run:  python app.py   ->  http://127.0.0.1:5000
 Keep it on localhost (no login in this MVP).
 """
+import hmac
 import json
 import os
 import re
@@ -14,7 +15,7 @@ from datetime import datetime, timezone
 import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import (Flask, flash, jsonify, redirect, render_template, request,
-                   Response, url_for)
+                   Response, session, url_for)
 
 import db as store
 import gsc
@@ -26,6 +27,51 @@ CONFIG_PATH = os.path.join(APP_DIR, "config.yaml")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("GSC_INDEXER_SECRET", "local-only-change-me")
+
+
+# ---------------- access protection ----------------
+# Set GSC_INDEXER_PASSWORD env var (e.g. in Render dashboard) to require a
+# login. When unset (local dev), the dashboard stays open.
+
+def _auth_on():
+    return bool(os.environ.get("GSC_INDEXER_PASSWORD"))
+
+
+@app.before_request
+def _gate():
+    if not _auth_on():
+        return None
+    if request.endpoint in ("login", "static"):
+        return None
+    if session.get("authed"):
+        return None
+    return redirect(url_for("login", next=request.path))
+
+
+@app.context_processor
+def _inject_auth():
+    return {"auth_on": _auth_on(), "authed": bool(session.get("authed"))}
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not _auth_on():
+        return redirect(url_for("dashboard"))
+    err = ""
+    if request.method == "POST":
+        want = os.environ.get("GSC_INDEXER_PASSWORD", "")
+        if want and hmac.compare_digest(request.form.get("password", ""), want):
+            session["authed"] = True
+            nxt = request.args.get("next") or url_for("dashboard")
+            return redirect(nxt)
+        err = "Wrong password."
+    return render_template("login.html", err=err, state=state)
+
+
+@app.route("/logout")
+def logout():
+    session.pop("authed", None)
+    return redirect(url_for("login"))
 
 state = {"running": False, "last_run": None, "last_error": None,
          "last_summary": None}
@@ -197,12 +243,21 @@ def dashboard():
         all_props = []
         for p in store.list_properties(conn):
             s = store.summary(conn, p["site_url"])
+            snaps = store.get_snapshots(conn, p["site_url"], 2)
+            trend = None
+            if len(snaps["indexed"]) >= 2:
+                trend = snaps["indexed"][-1] - snaps["indexed"][-2]
             all_props.append({
                 "id": p["id"], "site_url": p["site_url"], "active": p["active"],
                 **s,
                 "stuck": store.stuck_count(conn, p["site_url"]),
+                "trend": trend,
                 "pct": round(100 * s["indexed"] / s["total"]) if s["total"] else 0,
             })
+        deindexed_total = sum(-t["trend"] for t in all_props
+                              if t["trend"] and t["trend"] < 0)
+        newly_indexed_total = sum(t["trend"] for t in all_props
+                                  if t["trend"] and t["trend"] > 0)
         attention = sorted([p for p in all_props if p["stuck"] > 0],
                            key=lambda p: -p["stuck"])[:10]
         props = [p for p in all_props if not q or q in p["site_url"].lower()]
@@ -224,7 +279,9 @@ def dashboard():
         return render_template("dashboard.html", props=page_props,
                                attention=attention, totals=totals, state=state,
                                q=request.args.get("q", ""), sort=sort,
-                               page=page, pages=pages)
+                               page=page, pages=pages,
+                               deindexed_total=deindexed_total,
+                               newly_indexed_total=newly_indexed_total)
     finally:
         conn.close()
 
@@ -254,7 +311,8 @@ def property_page(pid):
             "manual_left": max(0, manual_cap - manual_used),
             "filt": filt, "q": q,
             "filters": ["all", "indexed", "unindexed", "unchecked",
-                        "submitted", "stuck"],
+                        "submitted", "stuck", "dead"],
+            "dead": store.dead_count(conn, site),
             "count": store.count_urls(conn, site, filt, q),
             "urls": store.list_urls(conn, site, filt, q, limit=500),
             "indexing_enabled": store.get_setting(conn, "use_indexing_api") == "true",
@@ -541,6 +599,16 @@ def schedule_daily():
         conn.close()
 
 
+# Start the daily scheduler even under gunicorn (which imports this module but
+# never runs __main__). render.yaml pins --workers 1 so it runs exactly once.
+try:
+    schedule_daily()
+    if not scheduler.running:
+        scheduler.start()
+except Exception:  # noqa: BLE001
+    pass
+
+
 def _find_free_port(start=5000, tries=10):
     import socket
     for p in range(start, start + tries):
@@ -556,7 +624,8 @@ def _find_free_port(start=5000, tries=10):
 if __name__ == "__main__":
     seed_from_config()
     schedule_daily()
-    scheduler.start()
+    if not scheduler.running:
+        scheduler.start()
     port = _find_free_port(5000)
     print("=" * 56)
     print("  GSC Indexer is running!")

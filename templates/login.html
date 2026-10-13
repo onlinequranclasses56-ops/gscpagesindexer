@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Login · GSC Indexer{% endblock %}
+{% block content %}
+<div class="card" style="max-width:380px;margin:60px auto">
+  <h2>◉ GSC Indexer</h2>
+  <p class="mut">This dashboard is password protected.</p>
+  {% if err %}<p style="color:var(--bad)">{{ err }}</p>{% endif %}
+  <form method="post">
+    <label>Password</label>
+    <input type="password" name="password" autofocus autocomplete="current-password">
+    <button type="submit" style="margin-top:10px">Login</button>
+  </form>
+</div>
+{% endblock %}

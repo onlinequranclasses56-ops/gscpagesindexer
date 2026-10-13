@@ -12,7 +12,7 @@
 
 <div class="grid" style="margin-bottom:4px">
   <div class="card"><div class="mut">Indexed</div><div class="stat">{{ pct }}%</div><div class="bar"><div style="width:{{ pct }}%"></div></div><div class="mut">{{ summary.indexed }} / {{ summary.total }}</div></div>
-  <div class="card"><div class="mut">Not indexed</div><div class="stat">{{ summary.total - summary.indexed }}</div><div class="mut">{% if stuck %}<span class="badge b-warn">{{ stuck }} stuck &gt;7 days</span>{% endif %}</div></div>
+  <div class="card"><div class="mut">Not indexed</div><div class="stat">{{ summary.total - summary.indexed }}</div><div class="mut">{% if stuck %}<span class="badge b-warn">{{ stuck }} stuck &gt;7 days</span>{% endif %}{% if dead %} <span class="badge b-bad">{{ dead }} dead links</span>{% endif %}</div></div>
   <div class="card"><div class="mut">Manual "Request indexing" slots (24h)</div><div class="stat">{{ manual_left }} <span class="mut">/ {{ manual_cap }} left</span></div>
     <form method="post" action="/p/{{ p.id }}/manual-request" style="margin-top:8px">
       <div class="row"><input type="text" name="url" placeholder="https://… — paste URL you will request in GSC" style="flex:1;min-width:220px"><button class="btn sm">Log slot</button></div>
