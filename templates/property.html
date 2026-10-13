@@ -74,6 +74,19 @@
 </div>
 
 <div class="card">
+  <h2>🕷 Deep crawl</h2>
+  <div class="mut" style="margin-bottom:8px">Walks every internal link from your homepage (A to Z) — finds pages your sitemap misses. New pages are added to tracking automatically.</div>
+  {% if crawl_msg %}<div class="flash ok">{{ crawl_msg }}</div>{% endif %}
+  {% if crawling %}
+  <div class="mut"><span class="spin"></span> Crawling… refresh this page to see new URLs appear below.</div>
+  {% else %}
+  <form method="post" action="/p/{{ p.id }}/crawl">
+    <button class="btn sm">Start deep crawl</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>URLs</h2>
   <div class="tabs">
     {% for f in filters %}<a href="/p/{{ p.id }}?f={{ f }}{% if q %}&q={{ q }}{% endif %}" class="{{ 'on' if filt==f else '' }}">{{ f }}</a>{% endfor %}

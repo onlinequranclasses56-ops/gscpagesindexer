@@ -18,6 +18,7 @@ from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    Response, session, url_for)
 
 import ai
+import crawl
 import db as store
 import gsc
 import indexer
@@ -93,6 +94,7 @@ DEFAULT_SETTINGS = {
     "auto_ai_analysis": "false",   # auto-analyze troubled properties after sync
     "auto_ai_max_per_run": "5",    # cap AI analyses per pipeline run
     "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
+    "crawl_max_pages": "2000",     # deep-crawl page cap per property
 }
 
 DB_PATH = os.environ.get("GSC_DB_PATH") or DEFAULT_SETTINGS["db_path"]
@@ -374,6 +376,8 @@ def property_page(pid):
             "ai_running": pid in state.get("ai_running", set()),
             "ai_configured": ai.is_configured(),
             "ai_error": state.get("ai_errors", {}).pop(pid, None),
+            "crawling": pid in state.get("crawling", set()),
+            "crawl_msg": state.get("crawl_done", {}).pop(pid, None),
         }
         return render_template("property.html", **ctx)
     finally:
@@ -795,6 +799,57 @@ def analyze_property(pid):
                              args=(pid, p["site_url"]),
                              daemon=True).start()
             flash("AI analysis started — refresh this page in a minute.", "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("property_page", pid=pid))
+
+
+# ---------------- deep crawl ----------------
+
+def _crawl_worker(pid, site, start_url, max_pages):
+    conn = db()
+    try:
+        state.setdefault("crawling", set()).add(pid)
+        urls = crawl.crawl_site(start_url, max_pages=max_pages)
+        added = store.upsert_new(conn, site, sorted(urls))
+        state.setdefault("crawl_done", {})[pid] = (
+            f"Deep crawl finished: {len(urls)} pages found, {added} new "
+            f"added to tracking.")
+    except Exception as e:  # noqa: BLE001
+        state.setdefault("crawl_done", {})[pid] = f"Crawl failed: {e}"[:200]
+    finally:
+        state.get("crawling", set()).discard(pid)
+        conn.close()
+
+
+@app.post("/p/<int:pid>/crawl")
+def deep_crawl(pid):
+    """BFS crawl from the site's homepage; imports every page found."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        if pid in state.get("crawling", set()):
+            flash("Crawl already running…", "ok")
+            return redirect(url_for("property_page", pid=pid))
+        site = p["site_url"]
+        if site.startswith("http"):
+            start = site
+        else:
+            start = "https://" + site.replace("sc-domain:", "", 1)
+        try:
+            max_pages = max(50, int(store.get_setting(conn, "crawl_max_pages",
+                                                      "2000") or 2000))
+        except (ValueError, TypeError):
+            max_pages = 2000
+        threading.Thread(target=_crawl_worker,
+                         args=(pid, site, start, max_pages),
+                         daemon=True).start()
+        flash("Deep crawl started in the background — it walks every internal "
+              "link from your homepage. This can take several minutes.",
+              "ok")
     finally:
         conn.close()
     return redirect(url_for("property_page", pid=pid))
