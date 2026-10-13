@@ -558,8 +558,9 @@ def bulk_action(pid):
 @app.route("/p/<int:pid>/import", methods=["POST"])
 def import_urls(pid):
     raw = request.form.get("urls", "")
-    urls = [l.strip() for l in raw.replace(",", "\n").splitlines()
-            if l.strip().startswith("http")]
+    # Smart: raw sitemap XML pasted from the browser is auto-parsed —
+    # every <loc> becomes a tracked URL instantly.
+    urls, was_xml = indexer.extract_pasted_urls(raw)
     conn = db()
     try:
         p = store.get_property(conn, pid)
@@ -567,7 +568,11 @@ def import_urls(pid):
             flash("Property not found.", "error")
             return redirect(url_for("dashboard"))
         added = store.upsert_new(conn, p["site_url"], urls)
-        flash(f"Imported {len(urls)} URLs ({added} new).", "ok")
+        if was_xml:
+            flash(f"Extracted {len(urls)} URLs from sitemap XML "
+                  f"({added} new added to tracking).", "ok")
+        else:
+            flash(f"Imported {len(urls)} URLs ({added} new).", "ok")
         return redirect(url_for("property_page", pid=pid))
     finally:
         conn.close()

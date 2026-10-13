@@ -88,6 +88,34 @@ def fetch_sitemap_urls(sitemap_url, _depth=0):
     return urls
 
 
+def extract_pasted_urls(text):
+    """Smart extraction from pasted text. Returns (urls, was_xml).
+
+    - Raw sitemap XML (<urlset>/<sitemapindex>) pasted from a browser:
+      pulls every <loc>, recursing into nested sitemap files (bounded).
+    - Plain URL list (one per line, commas ok): kept as-is.
+    Deduped, order preserved.
+    """
+    low = text.lower()
+    if "<loc" in low and ("<urlset" in low or "<sitemapindex" in low):
+        locs = re.findall(r"<loc>\s*(https?://[^<\s]+)\s*</loc>",
+                          text, re.IGNORECASE)
+        pages = []
+        if "<sitemapindex" in low:
+            for sm in locs[:20]:
+                pages += fetch_sitemap_urls(sm)
+        else:
+            for u in locs:
+                if u.lower().split("?")[0].endswith(".xml"):
+                    pages += fetch_sitemap_urls(u)  # nested ref, bounded inside
+                else:
+                    pages.append(u)
+        return list(dict.fromkeys(pages)), True
+    urls = [l.strip() for l in text.replace(",", "\n").splitlines()
+            if l.strip().startswith("http")]
+    return list(dict.fromkeys(urls)), False
+
+
 def _inspect_one(key_path, db_path, site, url):
     """Returns (status, message). Never raises except _QuotaStop."""
     try:
