@@ -96,6 +96,7 @@ DEFAULT_SETTINGS = {
     "auto_ai_analysis": "false",   # auto-analyze troubled properties after sync
     "auto_ai_max_per_run": "5",    # cap AI analyses per pipeline run
     "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
+    "ai_system_prompt": "",        # custom expert instructions; empty = built-in
     "crawl_max_pages": "2000",     # deep-crawl page cap per property
 }
 
@@ -848,7 +849,8 @@ def _ai_worker(pid, site):
                                  store.list_urls(conn, site, "unindexed",
                                                  limit=30)],
         }
-        ok, text = ai.analyze(data)
+        custom = (store.get_setting(conn, "ai_system_prompt") or "").strip()
+        ok, text = ai.analyze(data, system_prompt=custom or None)
         if ok:
             store.save_ai_report(conn, site, text)
         else:

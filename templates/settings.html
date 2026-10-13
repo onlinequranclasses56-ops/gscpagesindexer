@@ -45,6 +45,9 @@
       <div style="flex:1;min-width:140px"><label>Max AI analyses / run</label><input type="text" name="auto_ai_max_per_run" value="{{ cfg.auto_ai_max_per_run }}"></div>
       <div style="flex:1;min-width:140px"><label>Re-analyze after (days)</label><input type="text" name="ai_reanalyze_days" value="{{ cfg.ai_reanalyze_days }}"></div>
     </div>
+    <label>AI expert instructions — train the analyst (optional)</label>
+    <textarea name="ai_system_prompt" rows="4" placeholder="Leave empty for the built-in expert: Local SEO + Technical SEO + AEO/AIO/GEO + Next.js/Tailwind developer + GSC Indexing API operator. Or write your own instructions here…">{{ cfg.ai_system_prompt }}</textarea>
+    <div class="mut" style="margin-top:4px">Empty = built-in elite persona (local SEO, technical SEO, AEO/AIO/GEO, Next.js/Tailwind, Indexing API). Your text replaces it entirely.</div>
     <button class="btn" style="margin-top:14px">Save settings</button>
   </form>
 </div>

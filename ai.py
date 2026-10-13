@@ -19,6 +19,25 @@ import urllib.request
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
 
+# Elite multi-discipline expert persona for the AI Index Analyst.
+# Users can override it from Settings ("AI expert instructions").
+EXPERT_SYSTEM_PROMPT = """You are an elite SEO engineering consultant combining five expertises:
+
+1. LOCAL SEO — Google Business Profile signals, local pack rankings, NAP consistency,
+   location & service-area page architecture, local schema (LocalBusiness), reviews.
+2. TECHNICAL SEO — crawl budget, indexation, Core Web Vitals, XML sitemaps, robots.txt,
+   canonicals, redirects, duplicate/thin content, site architecture & internal linking.
+3. AEO / AIO / GEO — optimizing for AI Overviews, featured snippets and LLM citations:
+   answer-first content, FAQ & Speakable schema, clear entity definitions, quotable facts.
+4. NEXT.JS + TAILWIND DEVELOPER — rendering modes (SSR/SSG/ISR), metadata API,
+   programmatic sitemap.xml/robots generation, performance budgets, hydration issues
+   that block crawlers.
+5. GSC INDEXING API OPERATOR — URL Inspection verdicts, URL_UPDATED vs URL_DELETED,
+   200/day/project quotas, resubmit cooldowns, push prioritization.
+
+Rules: analyze ONLY the data provided. Never invent URLs, numbers, or facts.
+Never promise or guarantee indexing — Google alone decides. Be direct, no fluff."""
+
 
 def is_configured():
     return bool(os.environ.get("AI_API_KEY"))
@@ -44,18 +63,28 @@ def _prompt(d):
         lines += [f"- {u}" for u in d["unindexed_sample"][:30]]
     lines.append(
         "Task:\n"
-        "1) Identify patterns in the unindexed URLs (common path segments, "
-        "depth, page types).\n"
-        "2) Top 5 prioritized actions to get them indexed, ordered by expected "
-        "impact — be concrete and reference actual URLs.\n"
-        "3) Which 10 URLs should be pushed first via the Indexing API and why.\n"
-        "Max 320 words. Reference only the data above."
+        "1) PATTERNS — group the unindexed URLs: common path segments, depth, "
+        "page types (location pages? guides? thin/duplicate clusters?).\n"
+        "2) TOP 5 ACTIONS — prioritized by expected impact. Be concrete, "
+        "reference actual URLs, and label each with its discipline: "
+        "[Local SEO] [Technical] [AEO/GEO] [Next.js] [Indexing API].\n"
+        "3) PUSH QUEUE — which 10 URLs to push first via the Indexing API "
+        "and why.\n"
+        "4) Where relevant add: local-SEO notes (location-page coverage gaps), "
+        "a Next.js/Tailwind implementation hint (metadata API, sitemap "
+        "generation, ISR, crawler-blocking hydration), and one AEO/GEO tweak "
+        "(FAQ/Speakable schema, answer-first block) for AI citations.\n"
+        "Max 400 words. Reference only the data above."
     )
     return "\n".join(lines)
 
 
-def analyze(data, timeout=120):
-    """Run the analysis. Returns (ok, text)."""
+def analyze(data, timeout=120, system_prompt=None):
+    """Run the analysis. Returns (ok, text).
+
+    system_prompt overrides the built-in expert persona (e.g. from the
+    "AI expert instructions" setting) so the user can keep training it.
+    """
     key = os.environ.get("AI_API_KEY", "")
     if not key:
         return (False,
@@ -66,13 +95,10 @@ def analyze(data, timeout=120):
     body = json.dumps({
         "model": model,
         "temperature": 0.3,
-        "max_tokens": 1600,
+        "max_tokens": 2200,
         "messages": [
             {"role": "system",
-             "content": "You are a senior technical SEO analyst specializing "
-                        "in Google indexation. Analyze ONLY the data provided. "
-                        "Never invent URLs, numbers, or facts. Never promise "
-                        "or guarantee indexing — Google alone decides."},
+             "content": system_prompt or EXPERT_SYSTEM_PROMPT},
             {"role": "user", "content": _prompt(data)},
         ],
     }).encode()
