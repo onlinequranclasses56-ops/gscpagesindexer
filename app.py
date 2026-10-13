@@ -296,6 +296,9 @@ def bulk_action(pid):
         elif action == "unpriority":
             store.set_priority(conn, site, urls, 0)
             flash(f"{len(urls)} URLs set back to normal priority.", "ok")
+        elif action == "delete":
+            store.delete_urls(conn, site, urls)
+            flash(f"Removed {len(urls)} URLs from tracking.", "ok")
         elif action == "push":
             if store.get_setting(conn, "use_indexing_api") != "true":
                 flash("Indexing API is disabled — enable it in Settings first.", "error")

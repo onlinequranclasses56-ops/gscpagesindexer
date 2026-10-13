@@ -329,3 +329,12 @@ def set_priority(conn, prop, urls, priority):
         [(priority, prop, u) for u in urls],
     )
     conn.commit()
+
+
+def delete_urls(conn, prop, urls):
+    """Remove URLs from tracking (e.g. junk like sitemap.xml itself)."""
+    conn.executemany(
+        "DELETE FROM urls WHERE property=? AND url=?",
+        [(prop, u) for u in urls],
+    )
+    conn.commit()

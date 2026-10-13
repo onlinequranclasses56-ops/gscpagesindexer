@@ -51,7 +51,7 @@
   </form>
   <form method="post" action="/p/{{ p.id }}/bulk">
   <div class="row" style="margin-bottom:10px">
-    <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API</option></select>
+    <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API</option><option value="delete">Remove selected from tracking</option></select>
     <button class="btn sm">Apply to selected</button>
     <span class="mut">{{ count }} URLs{% if not indexing_enabled %} · Indexing API disabled in Settings{% endif %}</span>
   </div>
