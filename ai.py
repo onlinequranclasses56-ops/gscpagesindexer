@@ -13,6 +13,7 @@ facts or guarantee indexing.
 """
 import json
 import os
+import urllib.error
 import urllib.request
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -79,10 +80,23 @@ def analyze(data, timeout=120):
         req = urllib.request.Request(
             base + "/chat/completions", data=body,
             headers={"Authorization": "Bearer " + key,
-                     "Content-Type": "application/json"})
+                     "Content-Type": "application/json",
+                     # Groq sits behind Cloudflare, which 403s Python's
+                     # default "Python-urllib/x.y" user-agent before the
+                     # request ever reaches auth. A real UA passes through.
+                     "User-Agent": "gsc-indexer/1.0 (+ai-analyst)"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             out = json.load(r)
         text = out["choices"][0]["message"]["content"].strip()
         return (True, text)
+    except urllib.error.HTTPError as e:
+        # Surface the provider's error body so auth problems are
+        # distinguishable from WAF/network blocks.
+        try:
+            detail = e.read().decode("utf-8", "replace")[:200]
+        except Exception:  # noqa: BLE001
+            detail = ""
+        return (False,
+                f"AI request failed: HTTP {e.code} {e.reason} {detail}"[:300])
     except Exception as e:  # noqa: BLE001
         return (False, f"AI request failed: {e}"[:300])
