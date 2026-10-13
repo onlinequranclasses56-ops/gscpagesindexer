@@ -378,6 +378,8 @@ def property_page(pid):
             "ai_error": state.get("ai_errors", {}).pop(pid, None),
             "crawling": pid in state.get("crawling", set()),
             "crawl_msg": state.get("crawl_done", {}).pop(pid, None),
+            "sitemap_importing": pid in state.get("sitemap_importing", set()),
+            "sitemap_msg": state.get("sitemap_done", {}).pop(pid, None),
         }
         return render_template("property.html", **ctx)
     finally:
@@ -799,6 +801,73 @@ def analyze_property(pid):
                              args=(pid, p["site_url"]),
                              daemon=True).start()
             flash("AI analysis started — refresh this page in a minute.", "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("property_page", pid=pid))
+
+
+# ---------------- sitemap import + analyze ----------------
+
+def _sitemap_import_worker(pid, site, sitemaps, cfg, key_path, workers,
+                           push_only):
+    conn = db()
+    try:
+        state.setdefault("sitemap_importing", set()).add(pid)
+        total, added = 0, 0
+        for sm in sitemaps:
+            urls = indexer.fetch_sitemap_urls(sm)
+            total += len(urls)
+            added += store.upsert_new(conn, site, urls)
+        # analyze immediately: inspect so URLs land in indexed/non-indexed
+        inspected = indexer.inspect_property_urls(cfg, DB_PATH, site,
+                                                 key_path, workers,
+                                                 push_only)
+        state.setdefault("sitemap_done", {})[pid] = (
+            f"Sitemap import done: {total} URLs found ({added} new), "
+            f"{inspected} pages analyzed — use the filters below to browse "
+            f"Indexed / Not indexed / etc.")
+    except Exception as e:  # noqa: BLE001
+        state.setdefault("sitemap_done", {})[pid] = f"Import failed: {e}"[:250]
+    finally:
+        state.get("sitemap_importing", set()).discard(pid)
+        conn.close()
+
+
+@app.post("/p/<int:pid>/import-sitemap")
+def import_sitemap(pid):
+    """Import every page from the property's sitemap(s), then analyze
+    (inspect) them so they categorize into indexed / non-indexed / etc."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        if pid in state.get("sitemap_importing", set()):
+            flash("Sitemap import already running…", "ok")
+            return redirect(url_for("property_page", pid=pid))
+        sm = request.form.get("sm", "all")
+        sitemaps = json.loads(p["sitemaps"] or "[]") or \
+            indexer.discover_sitemaps(p["site_url"])
+        if sm != "all":
+            sitemaps = [sm]
+        if not sitemaps:
+            flash("No sitemaps found for this property.", "error")
+            return redirect(url_for("property_page", pid=pid))
+        cfg = current_config()
+        keys = cfg["service_account_keys"]
+        if not keys or not os.path.exists(keys[0]):
+            flash("Service account key not set — add it in Settings first.",
+                  "error")
+            return redirect(url_for("property_page", pid=pid))
+        workers = int(cfg.get("inspection_workers", 6))
+        threading.Thread(
+            target=_sitemap_import_worker,
+            args=(pid, p["site_url"], sitemaps, cfg, keys[0], workers,
+                  bool(p.get("push_only", 0))),
+            daemon=True).start()
+        flash("Importing all pages from sitemap(s) in the background, then "
+              "analyzing each page's index status…", "ok")
     finally:
         conn.close()
     return redirect(url_for("property_page", pid=pid))

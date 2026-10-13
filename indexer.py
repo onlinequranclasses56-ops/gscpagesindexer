@@ -139,32 +139,22 @@ def _check_dead_links(conn, site, limit=150):
         return 0
 
 
-def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
-    """Run the full pipeline for one property. Thread-safe; returns a report."""
-    site = prop["site_url"]
-    workers = int(cfg.get("inspection_workers", 6))
+def inspect_property_urls(cfg, db_path, site, key_path, workers,
+                         push_only=False):
+    """Run URL inspections for one property (parallel workers).
+
+    Opens its own DB connection. Returns the number of URLs inspected.
+    Raises RuntimeError when every inspection fails systematically
+    (e.g. wrong property URL format), so failures surface loudly.
+    """
     conn = store.connect(db_path)
     try:
-        # 1. sitemap sync (auto-discover when not configured)
-        sitemaps = prop.get("sitemaps") or discover_sitemaps(site)
-        all_urls = []
-        for sm in sitemaps:
-            all_urls += fetch_sitemap_urls(sm)
-        all_urls = list(dict.fromkeys(all_urls))  # dedupe, keep order
-        added = store.upsert_new(conn, site, all_urls)
-
-        # 1b. dead-link hygiene (bounded, best-effort)
-        _check_dead_links(conn, site)
-
-        # 2. index-status inspection (parallel workers)
-        # Push-only mode (no GSC access): skip inspections, only push.
-        push_only = bool(prop.get("push_only"))
         cap = int(cfg.get("daily_inspection_cap_per_property", 1500))
         stale = int(cfg.get("inspection_stale_hours", 72))
         todo = store.candidates_for_inspection(conn, site, cap, stale)
         if push_only:
             print(f"  push-only mode for {site}: skipping {len(todo)} inspections")
-            todo = []
+            return 0
         stop = threading.Event()
         inspected = 0
 
@@ -190,12 +180,37 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                     print(f"  ! inspection quota hit for {site}; will resume next run")
                     break
         if inspected == 0 and todo and first_error and not stop.is_set():
-            # Surface systematic failures (e.g. wrong property URL format)
-            # instead of leaving every URL silently "unchecked".
             raise RuntimeError(
                 f"URL Inspection API failed for all {len(todo)} URLs. "
                 f"First error: {first_error}"
             )
+        return inspected
+    finally:
+        conn.close()
+
+
+def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
+    """Run the full pipeline for one property. Thread-safe; returns a report."""
+    site = prop["site_url"]
+    workers = int(cfg.get("inspection_workers", 6))
+    conn = store.connect(db_path)
+    try:
+        # 1. sitemap sync (auto-discover when not configured)
+        sitemaps = prop.get("sitemaps") or discover_sitemaps(site)
+        all_urls = []
+        for sm in sitemaps:
+            all_urls += fetch_sitemap_urls(sm)
+        all_urls = list(dict.fromkeys(all_urls))  # dedupe, keep order
+        added = store.upsert_new(conn, site, all_urls)
+
+        # 1b. dead-link hygiene (bounded, best-effort)
+        _check_dead_links(conn, site)
+
+        # 2. index-status inspection (parallel workers; own DB connection)
+        # Push-only mode (no GSC access): skip inspections, only push.
+        push_only = bool(prop.get("push_only"))
+        inspected = inspect_property_urls(cfg, db_path, site, key_path,
+                                         workers, push_only)
 
         # 3. Indexing API pushes — sequential, shared multi-project budget
         pushed = 0
