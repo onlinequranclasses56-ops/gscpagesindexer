@@ -462,6 +462,21 @@ def demo_reset():
     return redirect(url_for("settings"))
 
 
+def _sa_emails(key_paths):
+    """Extract service-account client_email from each key file (for copy-paste
+    into Search Console user management). Never exposes the private key."""
+    out = []
+    for p in key_paths or []:
+        email = ""
+        try:
+            with open(p) as f:
+                email = json.load(f).get("client_email", "")
+        except Exception:
+            pass
+        out.append((p, email))
+    return out
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     conn = db()
@@ -501,7 +516,9 @@ def settings():
         cfg = {k: store.get_setting(conn, k, d)
                for k, d in DEFAULT_SETTINGS.items()}
         props = store.list_properties(conn)
-        return render_template("settings.html", cfg=cfg, props=props, state=state)
+        sa_info = _sa_emails(parse_keys(cfg.get("service_account_keys")))
+        return render_template("settings.html", cfg=cfg, props=props, state=state,
+                               sa_info=sa_info)
     finally:
         conn.close()
 

@@ -9,6 +9,15 @@
     <label>Service account key paths — one per line (each = separate GCP project = +200 Indexing API pushes/day)</label>
     <textarea name="service_account_keys" placeholder="/path/to/project1-key.json&#10;/path/to/project2-key.json" style="min-height:70px">{{ cfg.service_account_keys or cfg.service_account_key }}</textarea>
     <div class="mut">Create keys in Google Cloud → enable <b>Search Console API</b> (+ <b>Indexing API</b> if needed) → add each service-account email as <b>Owner</b> in every property.</div>
+    {% if sa_info %}
+    <div class="card" style="margin-top:10px">
+      <b>Service account emails — add EACH as Owner in every Search Console property</b>
+      <div class="mut">Search Console → Settings → Users and permissions → Add user → paste email → Owner</div>
+      {% for path, email in sa_info %}
+      <div class="mono" style="margin-top:6px">{{ email if email else ("(key unreadable: " ~ path ~ ")") }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
     <div class="row" style="margin-top:10px">
       <div style="flex:1;min-width:140px"><label>Inspection cap / property / day</label><input type="text" name="daily_inspection_cap_per_property" value="{{ cfg.daily_inspection_cap_per_property }}"></div>
       <div style="flex:1;min-width:140px"><label>Re-check stale after (hours)</label><input type="text" name="inspection_stale_hours" value="{{ cfg.inspection_stale_hours }}"></div>
