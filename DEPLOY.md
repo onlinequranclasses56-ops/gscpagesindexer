@@ -31,6 +31,9 @@ button that reads the property's real coverage data and suggests prioritized
 actions. To enable it, add an Environment Variable `AI_API_KEY` with your
 provider key (works with any OpenAI-compatible API; optional `AI_BASE_URL`
 and `AI_MODEL`). The AI never sees your Google keys.
+Tip for Groq (free): set `AI_BASE_URL=https://api.groq.com/openai/v1` and
+`AI_MODEL=openai/gpt-oss-20b` — the `llama-3.3-70b-versatile` ID is
+Enterprise-only and returns `model_not_found` on free keys.
 
 ## Option 2 — PythonAnywhere
 
