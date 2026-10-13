@@ -494,11 +494,46 @@ def api_history(pid):
         conn.close()
 
 
+@app.post("/properties/bulk-delete")
+def bulk_delete_properties():
+    pids = request.form.getlist("pids")
+    if not pids:
+        flash("Nothing selected.", "error")
+        return redirect(url_for("settings"))
+    conn = db()
+    try:
+        n = 0
+        for pid in pids:
+            try:
+                store.delete_property(conn, int(pid))
+                n += 1
+            except (ValueError, TypeError):
+                pass
+        flash(f"Deleted {n} properties and their tracked data.", "ok" if n else "error")
+    finally:
+        conn.close()
+    return redirect(url_for("settings"))
+
+
 @app.route("/properties/bulk-import", methods=["POST"])
 def bulk_import():
     lines = [l for l in request.form.get("sites", "").splitlines() if l.strip()]
     if not lines:
         flash("Paste at least one domain.", "error")
+        return redirect(url_for("settings"))
+    # Guard: deep page URLs are not properties — skip them with guidance.
+    clean, skipped = [], 0
+    for l in lines:
+        if re.match(r"https?://[^/]+/.+", l.strip()):
+            skipped += 1
+        else:
+            clean.append(l)
+    lines = clean
+    if skipped:
+        flash(f"Skipped {skipped} lines that look like page URLs, not domains. "
+              "Bulk import is for DOMAINS — add ONE property for the site, then "
+              "paste page URLs into that property's Import URLs box.", "error")
+    if not lines:
         return redirect(url_for("settings"))
 
     def job():

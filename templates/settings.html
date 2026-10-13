@@ -65,10 +65,13 @@
 </div>
 <div class="card">
   <h2>Properties ({{ props|length }})</h2>
+  <form id="bulkdel" method="post" action="/properties/bulk-delete"></form>
   <table>
+  <tr><th style="width:28px"><input type="checkbox" id="selall" title="Select all"></th><th>Property</th><th></th></tr>
   {% for p in props %}
     <tr>
-      <td style="word-break:break-all">{{ p.site_url }} {% if not p.active %}<span class="badge b-mut">paused</span>{% endif %}</td>
+      <td><input type="checkbox" name="pids" value="{{ p.id }}" form="bulkdel" class="psel"></td>
+      <td style="word-break:break-all">{{ p.site_url }} {% if not p.active %}<span class="badge b-mut">paused</span>{% endif %}{% if p.push_only %} <span class="badge b-warn">push-only</span>{% endif %}</td>
       <td style="white-space:nowrap">
         <form method="post" style="display:inline"><input type="hidden" name="toggle_pid" value="{{ p.id }}"><button class="btn sm ghost">{{ 'Resume' if not p.active else 'Pause' }}</button></form>
         <form method="post" style="display:inline" onsubmit="return confirm('Delete property and its data?')"><input type="hidden" name="delete_pid" value="{{ p.id }}"><button class="btn sm danger">Delete</button></form>
@@ -76,6 +79,28 @@
     </tr>
   {% endfor %}
   </table>
+  <div class="row" style="margin-top:10px;align-items:center;gap:10px">
+    <button class="btn sm danger" form="bulkdel" id="bulkdelbtn" disabled
+      onclick="return confirm('Delete ALL selected properties and their tracked data? This cannot be undone.')">Delete selected</button>
+    <span class="mut" id="selcount"></span>
+  </div>
+  <script>
+  (function(){
+    const selall = document.getElementById('selall');
+    const btn = document.getElementById('bulkdelbtn');
+    const cnt = document.getElementById('selcount');
+    const boxes = () => Array.from(document.querySelectorAll('.psel'));
+    function refresh(){
+      const all = boxes(), n = all.filter(b => b.checked).length;
+      btn.disabled = !n;
+      cnt.textContent = n ? n + ' selected' : '';
+      if (selall){ selall.checked = n > 0 && n === all.length; selall.indeterminate = n > 0 && n < all.length; }
+    }
+    if (selall) selall.addEventListener('click', () => boxes().forEach(b => b.checked = selall.checked));
+    document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('psel')) refresh(); });
+    refresh();
+  })();
+  </script>
   <h3>Add single property</h3>
   <form method="post">
     <label>Property exactly as in Search Console — e.g. https://client.com/ or client.com</label>
