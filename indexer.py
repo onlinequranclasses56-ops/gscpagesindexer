@@ -197,6 +197,12 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
     try:
         # 1. sitemap sync (auto-discover when not configured)
         sitemaps = prop.get("sitemaps") or discover_sitemaps(site)
+        if sitemaps and not prop.get("sitemaps"):
+            # persist auto-discovered sitemaps so the dashboard can show them
+            try:
+                store.set_sitemaps(conn, site, sitemaps)
+            except Exception:  # noqa: BLE001 — never break the pipeline
+                pass
         all_urls = []
         for sm in sitemaps:
             all_urls += fetch_sitemap_urls(sm)

@@ -308,6 +308,7 @@ def dashboard():
                 "stuck": store.stuck_count(conn, p["site_url"]),
                 "trend": trend,
                 "pct": round(100 * s["indexed"] / s["total"]) if s["total"] else 0,
+                "sitemaps": json.loads(p["sitemaps"] or "[]"),
             })
         deindexed_total = sum(-t["trend"] for t in all_props
                               if t["trend"] and t["trend"] < 0)

@@ -182,6 +182,12 @@ def summary(conn, prop):
 
 # ---------------- properties ----------------
 
+def set_sitemaps(conn, site_url, sitemaps):
+    conn.execute("UPDATE properties SET sitemaps=? WHERE site_url=?",
+                 (json.dumps(sitemaps), site_url))
+    conn.commit()
+
+
 def add_property(conn, site_url, sitemaps):
     conn.execute(
         "INSERT OR IGNORE INTO properties(site_url, sitemaps, added_at) VALUES(?,?,?)",

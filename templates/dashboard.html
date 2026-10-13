@@ -59,6 +59,11 @@
     {% if p.unchecked %}<span class="badge b-mut">{{ p.unchecked }} unchecked</span>{% endif %}
     {% if p.trend %}<span class="badge {{ 'b-ok' if p.trend > 0 else 'b-bad' }}">{{ '+' if p.trend > 0 }}{{ p.trend }} vs yesterday</span>{% endif %}
   </div>
+  {% if p.sitemaps %}
+  <div class="mut" style="margin-top:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ p.sitemaps|join('&#10;') }}">🗺 {{ p.sitemaps[0].replace('https://','').replace('http://','') }}{% if p.sitemaps|length > 1 %} <span class="badge b-mut">+{{ p.sitemaps|length - 1 }}</span>{% endif %}</div>
+  {% else %}
+  <div class="mut" style="margin-top:8px">🗺 no sitemap found yet</div>
+  {% endif %}
   <div class="row" style="margin-top:12px">
     <a class="btn sm" href="/p/{{ p.id }}">Open</a>
     <form method="post" action="/p/{{ p.id }}/run" style="margin:0"><button class="btn sm ghost" {% if state.running %}disabled{% endif %}>Sync now</button></form>
