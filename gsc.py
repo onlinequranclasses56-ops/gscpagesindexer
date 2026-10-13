@@ -5,7 +5,12 @@ import time
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/webmasters"]
+SCOPES = [
+    "https://www.googleapis.com/auth/webmasters",
+    # Required for the Indexing API (urlNotifications.publish).
+    # Without it Google returns 403 ACCESS_TOKEN_SCOPE_INSUFFICIENT.
+    "https://www.googleapis.com/auth/indexing",
+]
 
 
 def is_quota_error(e):
