@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ site }} · GSC Indexer{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between">
+  <h1 style="word-break:break-all">{{ site }}</h1>
+  <div class="row">
+    <a class="btn ghost sm" href="/p/{{ p.id }}/export">⬇ CSV</a>
+    <form method="post" action="/p/{{ p.id }}/run" style="margin:0"><button class="btn sm" {% if state.running %}disabled{% endif %}>Sync now</button></form>
+    <a class="btn ghost sm" href="/">← Back</a>
+  </div>
+</div>
+
+<div class="grid" style="margin-bottom:4px">
+  <div class="card"><div class="mut">Indexed</div><div class="stat">{{ pct }}%</div><div class="bar"><div style="width:{{ pct }}%"></div></div><div class="mut">{{ summary.indexed }} / {{ summary.total }}</div></div>
+  <div class="card"><div class="mut">Not indexed</div><div class="stat">{{ summary.total - summary.indexed }}</div><div class="mut">{% if stuck %}<span class="badge b-warn">{{ stuck }} stuck &gt;7 days</span>{% endif %}</div></div>
+  <div class="card"><div class="mut">Manual "Request indexing" slots (24h)</div><div class="stat">{{ manual_left }} <span class="mut">/ {{ manual_cap }} left</span></div>
+    <form method="post" action="/p/{{ p.id }}/manual-request" style="margin-top:8px">
+      <div class="row"><input type="text" name="url" placeholder="https://… — paste URL you will request in GSC" style="flex:1;min-width:220px"><button class="btn sm">Log slot</button></div>
+      <div class="mut" style="margin-top:6px">Click after you hit <b>Request indexing</b> in Search Console. No API exists for this — the tracker just guards your ~{{ manual_cap }}/day budget.</div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Index history</h2>
+  <canvas id="hist" height="90"></canvas>
+</div>
+
+<div class="grid">
+<div class="card">
+  <h2>Coverage breakdown</h2>
+  <table>{% for s,c in coverage %}<tr><td>{{ s }}</td><td style="text-align:right"><b>{{ c }}</b></td></tr>{% endfor %}</table>
+</div>
+<div class="card">
+  <h2>Import URLs</h2>
+  <form method="post" action="/p/{{ p.id }}/import">
+    <textarea name="urls" placeholder="Paste URLs, one per line"></textarea>
+    <button class="btn sm" style="margin-top:8px">Import</button>
+  </form>
+  <div class="mut" style="margin-top:8px">Sitemaps: {% for sm in sitemaps %}<div><code>{{ sm }}</code></div>{% endfor %}</div>
+</div>
+</div>
+
+<div class="card">
+  <h2>URLs</h2>
+  <div class="tabs">
+    {% for f in filters %}<a href="/p/{{ p.id }}?f={{ f }}{% if q %}&q={{ q }}{% endif %}" class="{{ 'on' if filt==f else '' }}">{{ f }}</a>{% endfor %}
+  </div>
+  <form method="get" action="/p/{{ p.id }}" style="margin-bottom:10px"><input type="hidden" name="f" value="{{ filt }}">
+    <div class="row"><input type="text" name="q" value="{{ q }}" placeholder="Search URL…" style="flex:1;min-width:200px"><button class="btn sm ghost">Search</button></div>
+  </form>
+  <form method="post" action="/p/{{ p.id }}/bulk">
+  <div class="row" style="margin-bottom:10px">
+    <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API</option></select>
+    <button class="btn sm">Apply to selected</button>
+    <span class="mut">{{ count }} URLs{% if not indexing_enabled %} · Indexing API disabled in Settings{% endif %}</span>
+  </div>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th><input type="checkbox" onclick="document.querySelectorAll('.u').forEach(c=>c.checked=this.checked)"></th><th>URL</th><th>Status</th><th>Coverage</th><th>Last checked</th><th>Submitted</th></tr>
+    {% for u in urls %}
+    <tr>
+      <td><input type="checkbox" class="u" name="u" value="{{ u.url }}"></td>
+      <td><span class="url">{{ u.url }}</span>{% if u.priority %}<span class="badge b-warn" style="margin-left:6px">★ priority</span>{% endif %}</td>
+      <td>{% if u.indexed %}<span class="badge b-ok">indexed</span>{% elif u.last_checked %}<span class="badge b-bad">not indexed</span>{% else %}<span class="badge b-mut">unchecked</span>{% endif %}</td>
+      <td class="mut">{{ u.index_state or '—' }}</td>
+      <td class="mut">{{ (u.last_checked or '—')[:16] }}</td>
+      <td class="mut">{% if u.last_submitted %}✓ {{ u.last_submitted[:10] }} ({{ u.submit_attempts }}×){% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  </form>
+  <div class="mut" style="margin-top:8px">Showing up to 500. Use search/filters to narrow down.</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+fetch("/api/history/{{ p.id }}").then(r=>r.json()).then(d=>{
+  if(!d.labels || !d.labels.length) return;
+  new Chart(document.getElementById("hist"),{type:"line",
+    data:{labels:d.labels,datasets:[
+      {label:"Indexed",data:d.indexed,borderColor:"#34d399",tension:.3,fill:false},
+      {label:"Total tracked",data:d.total,borderColor:"#38bdf8",tension:.3,fill:false}]},
+    options:{plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:{ticks:{color:"#94a3b8"}},y:{ticks:{color:"#94a3b8"}}}}});
+});
+</script>
+{% endblock %}

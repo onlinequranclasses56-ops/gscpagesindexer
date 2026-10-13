@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Settings · GSC Indexer{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<div class="grid">
+<div class="card">
+  <h2>Google access & quotas</h2>
+  <form method="post">
+    <label>Service account key paths — one per line (each = separate GCP project = +200 Indexing API pushes/day)</label>
+    <textarea name="service_account_keys" placeholder="/path/to/project1-key.json&#10;/path/to/project2-key.json" style="min-height:70px">{{ cfg.service_account_keys or cfg.service_account_key }}</textarea>
+    <div class="mut">Create keys in Google Cloud → enable <b>Search Console API</b> (+ <b>Indexing API</b> if needed) → add each service-account email as <b>Owner</b> in every property.</div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1;min-width:140px"><label>Inspection cap / property / day</label><input type="text" name="daily_inspection_cap_per_property" value="{{ cfg.daily_inspection_cap_per_property }}"></div>
+      <div style="flex:1;min-width:140px"><label>Re-check stale after (hours)</label><input type="text" name="inspection_stale_hours" value="{{ cfg.inspection_stale_hours }}"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1;min-width:140px"><label>Inspection workers / property</label><input type="text" name="inspection_workers" value="{{ cfg.inspection_workers }}"></div>
+      <div style="flex:1;min-width:140px"><label>Properties in parallel</label><input type="text" name="property_workers" value="{{ cfg.property_workers }}"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1;min-width:140px"><label>Daily run time</label><input type="time" name="run_time" value="{{ cfg.run_time }}"></div>
+      <div style="flex:1;min-width:140px"><label>Manual request slots / 24h</label><input type="text" name="manual_daily_cap" value="{{ cfg.manual_daily_cap }}"></div>
+    </div>
+    <h3>Indexing API <span class="mut">(officially: JobPosting / BroadcastEvent pages only)</span></h3>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--txt)"><input type="checkbox" name="use_indexing_api" value="1" {% if cfg.use_indexing_api=="true" %}checked{% endif %} style="width:auto"> Enable Indexing API pushes</label>
+    <div class="row" style="margin-top:6px">
+      <div style="flex:1;min-width:140px"><label>Action</label><select name="indexing_action"><option {{ 'selected' if cfg.indexing_action=='URL_UPDATED' }}>URL_UPDATED</option><option {{ 'selected' if cfg.indexing_action=='URL_DELETED' }}>URL_DELETED</option></select></div>
+      <div style="flex:1;min-width:140px"><label>Resubmit cooldown (hours)</label><input type="text" name="submit_cooldown_hours" value="{{ cfg.submit_cooldown_hours }}"></div>
+    </div>
+    <div class="mut" style="margin-top:6px">Quota: 200/day per GCP project, auto-rotated across all keys above.</div>
+    <button class="btn" style="margin-top:14px">Save settings</button>
+  </form>
+</div>
+<div>
+<div class="card">
+  <h2>Bulk import — 100 sites</h2>
+  <form method="post" action="/properties/bulk-import">
+    <textarea name="sites" placeholder="client1.com&#10;client2.com&#10;https://client3.com/"></textarea>
+    <div class="mut" style="margin:6px 0">One domain per line. Sitemaps are auto-discovered from each site's robots.txt. Runs in the background.</div>
+    <button class="btn sm" style="margin-top:8px">Import all</button>
+  </form>
+</div>
+<div class="card">
+  <h2>Properties ({{ props|length }})</h2>
+  <table>
+  {% for p in props %}
+    <tr>
+      <td style="word-break:break-all">{{ p.site_url }} {% if not p.active %}<span class="badge b-mut">paused</span>{% endif %}</td>
+      <td style="white-space:nowrap">
+        <form method="post" style="display:inline"><input type="hidden" name="toggle_pid" value="{{ p.id }}"><button class="btn sm ghost">{{ 'Resume' if not p.active else 'Pause' }}</button></form>
+        <form method="post" style="display:inline" onsubmit="return confirm('Delete property and its data?')"><input type="hidden" name="delete_pid" value="{{ p.id }}"><button class="btn sm danger">Delete</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </table>
+  <h3>Add single property</h3>
+  <form method="post">
+    <label>Domain (e.g. client.com — sitemap auto-discovered if left blank)</label>
+    <input type="text" name="site_url" placeholder="client.com">
+    <label>Sitemaps — optional, one per line</label>
+    <textarea name="sitemaps" placeholder="https://client.com/sitemap.xml" style="min-height:50px"></textarea>
+    <button class="btn sm" style="margin-top:8px" name="add_site" value="1">Add property</button>
+  </form>
+</div>
+</div>
+</div>
+<div class="card">
+  <h2>Demo mode</h2>
+  <div class="row">
+    <form method="post" action="/demo/seed" style="margin:0"><button class="btn sm">Load demo data</button></form>
+    <form method="post" action="/demo/reset" style="margin:0" onsubmit="return confirm('Remove all demo sites?')"><button class="btn sm danger">Reset demo data</button></form>
+  </div>
+  <div class="mut" style="margin-top:6px">Seeds 3 fake local-SEO sites with realistic index states so you can explore every screen without Google credentials.</div>
+</div>
+<div class="card"><div class="mut">Pipeline status: {% if state.running %}<span class="spin"></span> running…{% elif state.last_run %}last run {{ state.last_run[:16].replace('T',' ') }}{% if state.last_summary %} · {{ state.last_summary }}{% endif %}{% else %}never run yet{% endif %}{% if state.last_error %} · <span style="color:var(--bad)">{{ state.last_error }}</span>{% endif %}</div></div>
+{% endblock %}

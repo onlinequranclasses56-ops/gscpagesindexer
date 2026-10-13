@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · GSC Indexer{% endblock %}
+{% block content %}
+<div class="row" style="justify-content:space-between;margin-bottom:14px">
+  <h1>Dashboard</h1>
+  <form method="post" action="/run-all"><button class="btn" {% if state.running %}disabled{% endif %}>▶ Run all now</button></form>
+</div>
+{% if state.last_error %}<div class="flash error">Last run error: {{ state.last_error }}</div>{% endif %}
+{% if state.last_summary %}<div class="flash ok">{{ state.last_summary }} ({{ state.last_run[:16].replace('T',' ') }})</div>{% endif %}
+
+<div class="grid" style="margin-bottom:16px">
+  <div class="card"><div class="mut">Properties</div><div class="stat">{{ totals.properties }}</div></div>
+  <div class="card"><div class="mut">URLs tracked</div><div class="stat">{{ totals.urls }}</div></div>
+  <div class="card"><div class="mut">Indexed overall</div><div class="stat">{{ totals.pct }}%</div><div class="bar"><div style="width:{{ totals.pct }}%"></div></div><div class="mut">{{ totals.indexed }} / {{ totals.urls }}</div></div>
+</div>
+
+{% if attention %}
+<div class="card" style="border-color:var(--warn)">
+  <h2>⚠ Needs attention</h2>
+  <table>
+  {% for p in attention %}
+    <tr><td><a href="/p/{{ p.id }}" style="color:var(--acc)">{{ p.site_url }}</a></td>
+        <td><span class="badge b-warn">{{ p.stuck }} stuck &gt;7d</span></td>
+        <td class="mut">{{ p.pct }}% indexed</td></tr>
+  {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <form method="get" action="/">
+    <div class="row">
+      <input type="text" name="q" value="{{ q }}" placeholder="Search {{ totals.properties }} properties…" style="flex:1;min-width:200px">
+      <select name="sort" style="width:auto">
+        <option value="worst" {{ 'selected' if sort=='worst' }}>Worst indexed first</option>
+        <option value="stuck" {{ 'selected' if sort=='stuck' }}>Most stuck first</option>
+        <option value="biggest" {{ 'selected' if sort=='biggest' }}>Biggest first</option>
+        <option value="name" {{ 'selected' if sort=='name' }}>Name A–Z</option>
+      </select>
+      <button class="btn sm ghost">Filter</button>
+    </div>
+  </form>
+</div>
+
+<div class="grid">
+{% for p in props %}
+<div class="card">
+  <div class="row" style="justify-content:space-between">
+    <strong style="word-break:break-all">{{ p.site_url }}</strong>
+    {% if not p.active %}<span class="badge b-mut">paused</span>{% endif %}
+  </div>
+  <div class="bar"><div style="width:{{ p.pct }}%"></div></div>
+  <div class="row" style="gap:14px">
+    <span><b>{{ p.pct }}%</b> <span class="mut">indexed</span></span>
+    <span class="mut">{{ p.indexed }}/{{ p.total }}</span>
+    {% if p.stuck %}<span class="badge b-warn">{{ p.stuck }} stuck</span>{% endif %}
+    {% if p.unchecked %}<span class="badge b-mut">{{ p.unchecked }} unchecked</span>{% endif %}
+  </div>
+  <div class="row" style="margin-top:12px">
+    <a class="btn sm" href="/p/{{ p.id }}">Open</a>
+    <form method="post" action="/p/{{ p.id }}/run" style="margin:0"><button class="btn sm ghost" {% if state.running %}disabled{% endif %}>Sync now</button></form>
+  </div>
+</div>
+{% else %}
+<div class="card">No properties match. <a href="/settings" style="color:var(--acc)">Add sites in Settings →</a>
+{% if not totals.properties %}
+<form method="post" action="/demo/seed" style="margin-top:10px">
+  <button class="btn">✨ Load demo data — try it with 3 sample sites, no Google account needed</button>
+</form>
+{% endif %}
+</div>
+{% endfor %}
+</div>
+
+{% if pages > 1 %}
+<div class="row" style="justify-content:center;margin-top:8px;gap:6px">
+  {% for n in range(1, pages+1) %}
+    <a class="btn sm {{ '' if n==page else 'ghost' }}" href="/?q={{ q }}&sort={{ sort }}&page={{ n }}">{{ n }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

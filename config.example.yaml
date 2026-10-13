@@ -1,0 +1,32 @@
+# Copy to config.yaml and fill in your values.
+# (The web dashboard imports these on first run; afterwards manage everything in the UI.)
+
+# One key per GCP project — each project adds +200 Indexing API pushes/day.
+service_account_keys:
+  - "/path/to/project1-key.json"
+  # - "/path/to/project2-key.json"
+db_path: "indexing.db"
+
+# URL Inspection API: 2000/day per property (Google's hard limit).
+daily_inspection_cap_per_property: 1500
+# Re-check a URL's index status at most this often.
+inspection_stale_hours: 72
+
+# Speed: parallel API workers. 6 inspection workers x 3 properties is safe.
+inspection_workers: 6
+property_workers: 3
+
+# Google Indexing API: 200/day per GCP project, auto-rotated across all keys above.
+# Officially ONLY for pages with JobPosting or BroadcastEvent structured data.
+# Leave false unless your pages actually carry that markup.
+use_indexing_api: false
+indexing_action: "URL_UPDATED"   # or URL_DELETED
+# Don't resubmit the same URL more often than this.
+submit_cooldown_hours: 48
+
+# Leave empty — bulk-import 100 sites from the dashboard instead,
+# or list them here (sitemaps auto-discovered from robots.txt when omitted).
+properties: []
+  # - site_url: "sc-domain:example.com"
+  #   sitemaps:
+  #     - "https://example.com/sitemap.xml"

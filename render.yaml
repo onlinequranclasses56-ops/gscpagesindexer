@@ -1,0 +1,18 @@
+# Render Blueprint — deploy at render.com -> New -> Blueprint -> connect your repo.
+services:
+  - type: web
+    name: gsc-indexer
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    # workers=1 so the daily scheduler only runs once
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 600
+    disk:
+      name: gsc-data
+      mountPath: /var/gsc-data
+      sizeGB: 1
+    envVars:
+      - key: GSC_INDEXER_SECRET
+        generateValue: true
+      - key: GSC_DB_PATH
+        value: /var/gsc-data/indexing.db

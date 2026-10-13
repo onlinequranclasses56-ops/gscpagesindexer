@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}GSC Indexer{% endblock %}</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--mut:#94a3b8;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,sans-serif}
+nav{background:#020617;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;gap:20px;align-items:center;position:sticky;top:0;z-index:10}
+nav a{color:var(--txt);text-decoration:none;font-weight:600}nav a:hover{color:var(--acc)}
+nav .brand{color:var(--acc);font-size:16px}
+nav .sp{flex:1}nav .st{font-size:12px;color:var(--mut)}
+main{max-width:1200px;margin:0 auto;padding:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+h1{font-size:22px;margin:0 0 12px}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:14px 0 8px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px}
+.stat{font-size:28px;font-weight:700}.mut{color:var(--mut);font-size:12px}
+.bar{height:8px;background:#0b1220;border-radius:4px;overflow:hidden;margin:8px 0}.bar>div{height:100%;background:linear-gradient(90deg,var(--acc),var(--ok))}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase}
+tr:hover td{background:#16213a}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.b-ok{background:#064e3b;color:var(--ok)}.b-bad{background:#7f1d1d;color:var(--bad)}.b-warn{background:#78350f;color:var(--warn)}.b-mut{background:#334155;color:var(--mut)}
+.btn{background:var(--acc);color:#04121f;border:0;border-radius:6px;padding:8px 14px;font-weight:700;cursor:pointer;font-size:13px}
+.btn:hover{filter:brightness(1.1)}.btn.ghost{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+.btn.danger{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+.btn.sm{padding:4px 10px;font-size:12px}
+input[type=text],input[type=time],textarea,select{background:#0b1220;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:8px;width:100%;font-size:13px}
+textarea{min-height:90px;font-family:monospace}
+label{display:block;margin:10px 0 4px;color:var(--mut);font-size:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.flash{padding:10px 14px;border-radius:8px;margin-bottom:12px}.flash.ok{background:#064e3b}.flash.error{background:#7f1d1d}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.tabs a{padding:6px 12px;border-radius:20px;border:1px solid var(--line);color:var(--mut);text-decoration:none;font-size:12px}
+.tabs a.on{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:700}
+code{background:#0b1220;padding:2px 6px;border-radius:4px;font-size:12px}
+.url{word-break:break-all;color:var(--acc);font-size:12px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--mut);border-top-color:var(--acc);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<nav>
+  <a class="brand" href="/">◉ GSC Indexer</a>
+  <a href="/">Dashboard</a>
+  <a href="/settings">Settings</a>
+  <span class="sp"></span>
+  <span class="st">{% if state.running %}<span class="spin"></span> sync running…{% elif state.last_run %}last run: {{ state.last_run[:16].replace('T',' ') }}{% else %}never run{% endif %}</span>
+</nav>
+<main>
+{% with ms=get_flashed_messages(with_categories=true) %}{% for c,m in ms %}<div class="flash {{c}}">{{m}}</div>{% endfor %}{% endwith %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
