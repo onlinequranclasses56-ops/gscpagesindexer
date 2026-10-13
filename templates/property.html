@@ -9,6 +9,18 @@
     <a class="btn ghost sm" href="/">← Back</a>
   </div>
 </div>
+<div class="card" style="border-color:{% if p.push_only %}var(--warn){% else %}var(--line){% endif %}">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div>
+      <b>Push-only mode</b>
+      <span class="badge {{ 'b-warn' if p.push_only else 'b-mut' }}">{{ 'ON' if p.push_only else 'OFF' }}</span>
+      <div class="mut">For sites where the service account has <b>no GSC access</b>: skips index inspections, only pushes URLs to the Indexing API. No verification possible in this mode.</div>
+    </div>
+    <form method="post" action="/p/{{ p.id }}/push-only" style="margin:0">
+      <button class="btn sm ghost">{{ 'Disable' if p.push_only else 'Enable' }}</button>
+    </form>
+  </div>
+</div>
 
 <div class="grid" style="margin-bottom:4px">
   <div class="card"><div class="mut">Indexed</div><div class="stat">{{ pct }}%</div><div class="bar"><div style="width:{{ pct }}%"></div></div><div class="mut">{{ summary.indexed }} / {{ summary.total }}</div></div>

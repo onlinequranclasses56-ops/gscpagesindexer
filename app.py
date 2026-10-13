@@ -197,7 +197,8 @@ def run_pipeline(property_ids=None):
 
         def work(p):
             prop = {"site_url": p["site_url"],
-                    "sitemaps": json.loads(p["sitemaps"] or "[]")}
+                    "sitemaps": json.loads(p["sitemaps"] or "[]"),
+                    "push_only": p.get("push_only", 0)}
             try:
                 rep = indexer.run_property(cfg, DB_PATH, prop, pushers,
                                            push_lock, key_path)
@@ -326,6 +327,27 @@ def property_page(pid):
         return render_template("property.html", **ctx)
     finally:
         conn.close()
+
+
+@app.post("/p/<int:pid>/push-only")
+def toggle_push_only(pid):
+    """Toggle push-only mode: skip index inspections (for properties the
+    service account can't access in GSC), only push to the Indexing API."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+        else:
+            new_val = not p.get("push_only")
+            store.set_push_only(conn, pid, new_val)
+            flash(("Push-only mode ON — inspections skipped, only Indexing API "
+                   "pushes will run." if new_val else
+                   "Push-only mode OFF — full inspection + push pipeline."),
+                  "ok")
+    finally:
+        conn.close()
+    return redirect(url_for("property_page", pid=pid))
 
 
 @app.route("/p/<int:pid>/run", methods=["POST"])

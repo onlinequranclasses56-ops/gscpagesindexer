@@ -88,6 +88,10 @@ def connect(path):
     # migrate: http_status for dead-link detection
     if "http_status" not in cols:
         conn.execute("ALTER TABLE urls ADD COLUMN http_status INTEGER")
+    # migrate: push_only mode for properties without GSC access
+    pcols = [r[1] for r in conn.execute("PRAGMA table_info(properties)").fetchall()]
+    if "push_only" not in pcols:
+        conn.execute("ALTER TABLE properties ADD COLUMN push_only INTEGER NOT NULL DEFAULT 0")
     # indexes for 100-property scale
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_urls_lookup "
@@ -201,6 +205,14 @@ def get_property(conn, pid):
 
 def set_property_active(conn, pid, active):
     conn.execute("UPDATE properties SET active=? WHERE id=?", (1 if active else 0, pid))
+    conn.commit()
+
+
+def set_push_only(conn, pid, push_only):
+    """Push-only mode: skip index inspections (no GSC access), only push URLs
+    to the Indexing API. For properties the service account can't access."""
+    conn.execute("UPDATE properties SET push_only=? WHERE id=?",
+                 (1 if push_only else 0, pid))
     conn.commit()
 
 

@@ -157,9 +157,14 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         _check_dead_links(conn, site)
 
         # 2. index-status inspection (parallel workers)
+        # Push-only mode (no GSC access): skip inspections, only push.
+        push_only = bool(prop.get("push_only"))
         cap = int(cfg.get("daily_inspection_cap_per_property", 1500))
         stale = int(cfg.get("inspection_stale_hours", 72))
         todo = store.candidates_for_inspection(conn, site, cap, stale)
+        if push_only:
+            print(f"  push-only mode for {site}: skipping {len(todo)} inspections")
+            todo = []
         stop = threading.Event()
         inspected = 0
 
