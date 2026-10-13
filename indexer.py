@@ -89,6 +89,7 @@ def fetch_sitemap_urls(sitemap_url, _depth=0):
 
 
 def _inspect_one(key_path, db_path, site, url):
+    """Returns (status, message). Never raises except _QuotaStop."""
     try:
         res = gsc.inspect_url(_thread_sc(key_path), site, url)
         c = store.connect(db_path)
@@ -98,11 +99,11 @@ def _inspect_one(key_path, db_path, site, url):
             )
         finally:
             c.close()
-        return "ok"
+        return ("ok", "")
     except Exception as e:  # noqa: BLE001
         if gsc.is_quota_error(e):
             raise _QuotaStop(str(e))
-        return "err"
+        return ("err", str(e)[:300])
 
 
 def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
@@ -128,22 +129,32 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
 
         def job(url):
             if stop.is_set():
-                return "skip"
+                return ("skip", "")
             try:
                 return _inspect_one(key_path, db_path, site, url)
             except _QuotaStop:
                 stop.set()
-                return "quota"
+                return ("quota", "")
 
+        first_error = ""
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futures = [ex.submit(job, u) for u in todo]
             for f in as_completed(futures):
-                r = f.result()
+                r, msg = f.result()
                 if r == "ok":
                     inspected += 1
+                elif r == "err" and not first_error:
+                    first_error = msg
                 elif r == "quota":
                     print(f"  ! inspection quota hit for {site}; will resume next run")
                     break
+        if inspected == 0 and todo and first_error and not stop.is_set():
+            # Surface systematic failures (e.g. wrong property URL format)
+            # instead of leaving every URL silently "unchecked".
+            raise RuntimeError(
+                f"URL Inspection API failed for all {len(todo)} URLs. "
+                f"First error: {first_error}"
+            )
 
         # 3. Indexing API pushes — sequential, shared multi-project budget
         pushed = 0

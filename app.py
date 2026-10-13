@@ -110,13 +110,17 @@ def utcnow():
 
 
 def normalize_site(line):
-    line = (line or "").strip().lower()
+    line = (line or "").strip()
     if not line:
         return None
     if line.startswith("sc-domain:"):
-        return line
-    line = re.sub(r"^https?://", "", line).split("/")[0].split(":")[0]
-    return f"sc-domain:{line}" if line and "." in line else None
+        return line.lower()
+    if line.startswith("http://") or line.startswith("https://"):
+        # URL-prefix property: keep EXACTLY as in Search Console (it must
+        # match character-for-character, or Google rejects every API call).
+        return line.lower().rstrip("/") + "/"
+    dom = re.sub(r"^https?://", "", line.lower()).split("/")[0].split(":")[0]
+    return f"sc-domain:{dom}" if dom and "." in dom else None
 
 
 # ---------------- background pipeline ----------------
