@@ -135,7 +135,7 @@
       <td><span class="url">{{ u.url }}</span>{% if u.priority %}<span class="badge b-warn" style="margin-left:6px">★ priority</span>{% endif %}</td>
       <td>{% if u.indexed %}<span class="badge b-ok">indexed</span>{% elif u.last_checked %}<span class="badge b-bad">not indexed</span>{% else %}<span class="badge b-mut">unchecked</span>{% endif %}</td>
       <td class="mut">{{ u.index_state or '—' }}</td>
-      <td class="mut">{{ (u.last_checked or '—')[:16] }}</td>
+      <td>{% if u.last_checked %}<span class="badge b-ok" title="Checked {{ u.last_checked[:16] }}">✅ {{ u.last_checked[:16] }}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
       <td class="mut">{% if u.last_submitted %}✓ {{ u.last_submitted[:10] }} ({{ u.submit_attempts }}×){% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
