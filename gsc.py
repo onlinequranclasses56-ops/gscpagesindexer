@@ -24,6 +24,13 @@ def is_quota_error(e):
     )
 
 
+def is_ownership_error(e):
+    """403 'Failed to verify the URL ownership' — this key's service account
+    is not a verified owner of the property in Search Console."""
+    msg = str(e).lower()
+    return "failed to verify" in msg and "ownership" in msg
+
+
 def _call_with_retry(fn, tries=3):
     """Retry transient failures; quota errors are raised immediately."""
     last = None

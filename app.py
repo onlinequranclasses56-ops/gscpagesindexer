@@ -533,15 +533,24 @@ def bulk_action(pid):
                     act = store.get_setting(conn, "indexing_action", "URL_UPDATED")
                     ok, lock = 0, threading.Lock()
                     urls = list(urls)
+                    denied = []
                     i = 0
                     while i < len(urls):
                         u = urls[i]
                         with lock:
-                            svc = next((x for x in pushers if x["budget"] > 0), None)
+                            svc = next((x for x in pushers
+                                        if x["budget"] > 0 and x["key"] not in denied),
+                                       None)
                             if svc:
                                 svc["budget"] -= 1
                         if svc is None:
-                            flash("Indexing API daily budget exhausted.", "error")
+                            if denied:
+                                flash("Push stopped: URL ownership not verified for "
+                                      f"{', '.join(denied)}. Add that key's service-account "
+                                      "email (see Settings) as Owner in Search Console.",
+                                      "error")
+                            else:
+                                flash("Indexing API daily budget exhausted.", "error")
                             break
                         try:
                             gsc.publish_url(svc["svc"], u, act)
@@ -554,6 +563,13 @@ def bulk_action(pid):
                                 # project's key.
                                 with lock:
                                     svc["budget"] = 0
+                                continue
+                            if gsc.is_ownership_error(e):
+                                # This key's SA doesn't own this property —
+                                # try the next key for the same URL.
+                                denied.append(svc["key"])
+                                with lock:
+                                    svc["budget"] += 1  # refund
                                 continue
                             with lock:
                                 svc["budget"] += 1

@@ -254,11 +254,14 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
             cool = int(cfg.get("submit_cooldown_hours", 48))
             subs = store.candidates_for_submission(conn, site, total_budget, cool)
             action = cfg.get("indexing_action", "URL_UPDATED")
+            denied = set()  # keys failing the ownership check for THIS property
             i = 0
             while i < len(subs):
                 u = subs[i]
                 with push_lock:
-                    svc = next((p for p in pushers if p["budget"] > 0), None)
+                    svc = next((p for p in pushers
+                                if p["budget"] > 0 and p["key"] not in denied),
+                               None)
                     if svc:
                         svc["budget"] -= 1
                 if svc is None:
@@ -274,6 +277,13 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                         # the SAME url on the next project's key.
                         with push_lock:
                             svc["budget"] = 0
+                        continue
+                    if gsc.is_ownership_error(e):
+                        # This key's SA doesn't own this property — skip it for
+                        # the rest of this property and try the next key.
+                        denied.add(svc["key"])
+                        with push_lock:
+                            svc["budget"] += 1  # refund; it may own other properties
                         continue
                     with push_lock:
                         svc["budget"] += 1  # refund on failure
@@ -291,7 +301,8 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         store.save_snapshot(conn, site, s["total"], s["indexed"])
         return {
             "site": site, "urls": len(all_urls), "new": added,
-            "inspected": inspected, "pushed": pushed, **s,
+            "inspected": inspected, "pushed": pushed,
+            "push_denied": sorted(denied), **s,
         }
     finally:
         conn.close()
