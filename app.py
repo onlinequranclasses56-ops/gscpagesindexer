@@ -557,7 +557,7 @@ def bulk_action(pid):
                                 continue
                             with lock:
                                 svc["budget"] += 1
-                            flash(f"Push stopped: {e}", "error")
+                            flash(f"Push stopped ({svc['key']}): {e}", "error")
                             break
                     flash(f"Pushed {ok} URLs to the Indexing API.", "ok")
         return redirect(url_for("property_page", pid=pid))
