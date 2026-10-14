@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0284c7">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <title>{% block title %}GSC Indexer{% endblock %}</title>
 <style>
 :root{--bg:#eef2f7;--card:#ffffff;--line:#e2e8f0;--txt:#0f172a;--mut:#64748b;--acc:#0284c7;--ok:#059669;--warn:#d97706;--bad:#dc2626}
@@ -38,11 +43,29 @@ code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:12px}
 a{color:var(--acc)}
 .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--mut);border-top-color:var(--acc);border-radius:50%;animation:sp 1s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
+.brand img{height:28px;width:28px;vertical-align:-8px;margin-right:2px;border-radius:7px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+@media (max-width:720px){
+  main{padding:12px}
+  h1{font-size:19px}
+  .stat{font-size:24px}
+  nav{padding:8px 12px;gap:10px;flex-wrap:wrap}
+  nav .st{width:100%;order:5}
+  .grid{grid-template-columns:1fr}
+  .card{padding:12px;overflow-x:auto}
+  .btn{min-height:42px}
+  th,td{padding:6px}
+  .tabs a{padding:8px 14px}
+}
+@media (max-width:400px){
+  .stat{font-size:20px}
+  nav{font-size:13px}
+}
 </style>
 </head>
 <body>
 <nav>
-  <a class="brand" href="/">◉ GSC Indexer</a>
+  <a class="brand" href="/"><img src="/static/logo.svg" alt="GSC Indexer logo">GSC Indexer</a>
   <a href="/">Dashboard</a>
   <a href="/settings">Settings</a>
   <span class="sp"></span>
