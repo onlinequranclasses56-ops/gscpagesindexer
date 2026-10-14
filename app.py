@@ -370,7 +370,7 @@ def property_page(pid):
             "manual_left": max(0, manual_cap - manual_used),
             "filt": filt, "q": q,
             "filters": ["all", "indexed", "unindexed", "unchecked",
-                        "submitted", "stuck", "dead"],
+                        "submitted", "unsubmitted", "stuck", "dead"],
             "dead": store.dead_count(conn, site),
             "count": store.count_urls(conn, site, filt, q),
             "urls": store.list_urls(conn, site, filt, q, limit=500),

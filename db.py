@@ -321,6 +321,7 @@ FILTERS = {
     "unindexed": "AND (indexed=0 OR indexed IS NULL) AND last_checked IS NOT NULL",
     "unchecked": "AND last_checked IS NULL",
     "submitted": "AND last_submitted IS NOT NULL",
+    "unsubmitted": "AND (indexed=0 OR indexed IS NULL) AND last_submitted IS NULL",
     "stuck": "AND (indexed=0 OR indexed IS NULL) AND first_seen < datetime('now','-7 days')",
     "dead": "AND http_status >= 400",
 }
