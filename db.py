@@ -2,6 +2,7 @@
 import json
 import sqlite3
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 SCHEMA_URLS = """
 CREATE TABLE IF NOT EXISTS urls (
@@ -63,6 +64,44 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 );
 """
 
+SCHEMA_PUSH_USAGE = """
+CREATE TABLE IF NOT EXISTS push_usage (
+    day TEXT NOT NULL,
+    key TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, key)
+);
+"""
+
+
+def quota_day():
+    """Google's Indexing API quota window resets at midnight Pacific Time."""
+    return datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+
+def log_push(conn, key):
+    """Record one successful Indexing API publish against today's PT quota day."""
+    conn.execute(
+        "INSERT INTO push_usage(day, key, used) VALUES(?,?,1) "
+        "ON CONFLICT(day, key) DO UPDATE SET used=used+1",
+        (quota_day(), key),
+    )
+    conn.commit()
+
+
+def push_used(conn, key, day=None):
+    r = conn.execute(
+        "SELECT used FROM push_usage WHERE day=? AND key=?",
+        (day or quota_day(), key),
+    ).fetchone()
+    return r[0] if r else 0
+
+
+def push_usage_today(conn):
+    return {r["key"]: r["used"] for r in
+            conn.execute("SELECT key, used FROM push_usage WHERE day=?",
+                         (quota_day(),))}
+
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -81,6 +120,7 @@ def connect(path):
     conn.execute(SCHEMA_SNAPSHOTS)
     conn.execute(SCHEMA_SLOTS)
     conn.execute(SCHEMA_AI)
+    conn.execute(SCHEMA_PUSH_USAGE)
     # migrate: priority column for DBs created by older versions
     cols = [r[1] for r in conn.execute("PRAGMA table_info(urls)").fetchall()]
     if "priority" not in cols:

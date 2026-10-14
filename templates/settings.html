@@ -18,6 +18,23 @@
       {% endfor %}
     </div>
     {% endif %}
+    {% if quota_info %}
+    <div class="card" style="margin-top:10px">
+      <b>📊 Indexing API quota — today ({{ quota_day }} PT, resets midnight PT)</b>
+      <table style="margin-top:8px">
+        <tr><th>Key</th><th>Used</th><th>Remaining</th><th style="min-width:120px">Meter</th></tr>
+        {% for q in quota_info %}
+        <tr>
+          <td class="mono" style="font-size:11px">{{ q.email }}</td>
+          <td><b>{{ q.used }}</b> / 200</td>
+          <td>{% if q.remaining > 0 %}<span class="badge b-ok">{{ q.remaining }} left</span>{% else %}<span class="badge b-bad">exhausted</span>{% endif %}</td>
+          <td><div style="background:#f1f5f9;border-radius:6px;height:10px"><div style="background:{% if q.remaining > 0 %}#10b981{% else %}#ef4444{% endif %};height:10px;border-radius:6px;width:{{ (q.used * 100 / 200) | round(1) }}%"></div></div></td>
+        </tr>
+        {% endfor %}
+      </table>
+      <div class="mut" style="margin-top:6px">Total today: <b>{{ quota_info | sum(attribute='used') }}</b> used · <b>{{ quota_info | sum(attribute='remaining') }}</b> remaining across {{ quota_info | length }} project(s). Counts only pushes this tool made.</div>
+    </div>
+    {% endif %}
     <div class="row" style="margin-top:10px">
       <div style="flex:1;min-width:140px"><label>Inspection cap / property / day</label><input type="text" name="daily_inspection_cap_per_property" value="{{ cfg.daily_inspection_cap_per_property }}"></div>
       <div style="flex:1;min-width:140px"><label>Re-check stale after (hours)</label><input type="text" name="inspection_stale_hours" value="{{ cfg.inspection_stale_hours }}"></div>

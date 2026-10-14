@@ -237,10 +237,10 @@ def run_pipeline(property_ids=None):
             raise RuntimeError("Service account key not set — add it in Settings first.")
         key_path = keys[0]
         push_lock = threading.Lock()
-        pushers = indexer.build_pushers(keys, cfg["use_indexing_api"])
 
         conn = store.connect(DB_PATH)
         try:
+            pushers = indexer.build_pushers(keys, cfg["use_indexing_api"], conn)
             props = [p for p in store.list_properties(conn, active_only=True)
                      if not property_ids or p["id"] in property_ids]
         finally:
@@ -526,7 +526,7 @@ def bulk_action(pid):
             else:
                 keys = parse_keys(store.get_setting(conn, "service_account_keys")) or \
                        [store.get_setting(conn, "service_account_key")]
-                pushers = indexer.build_pushers([k for k in keys if k], True)
+                pushers = indexer.build_pushers([k for k in keys if k], True, conn)
                 if not pushers:
                     flash("No valid service account keys.", "error")
                 else:
@@ -555,6 +555,7 @@ def bulk_action(pid):
                         try:
                             gsc.publish_url(svc["svc"], u, act)
                             store.mark_submitted(conn, site, u, f"manual-push:{act}")
+                            store.log_push(conn, svc["key"])
                             ok += 1
                             i += 1
                         except Exception as e:  # noqa: BLE001
@@ -804,8 +805,16 @@ def settings():
                for k, d in DEFAULT_SETTINGS.items()}
         props = store.list_properties(conn)
         sa_info = _sa_emails(parse_keys(cfg.get("service_account_keys")))
+        usage = store.push_usage_today(conn)
+        quota_info = [
+            {"path": p, "email": e or f"(key unreadable: {p})",
+             "used": usage.get(p, 0),
+             "remaining": max(0, 200 - usage.get(p, 0))}
+            for p, e in sa_info
+        ]
         return render_template("settings.html", cfg=cfg, props=props, state=state,
-                               sa_info=sa_info,
+                               sa_info=sa_info, quota_info=quota_info,
+                               quota_day=store.quota_day(),
                                discovered=state.get("discovered"))
     finally:
         conn.close()

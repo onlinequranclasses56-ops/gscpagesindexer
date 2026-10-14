@@ -269,6 +269,7 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                 try:
                     gsc.publish_url(svc["svc"], u, action)
                     store.mark_submitted(conn, site, u, f"indexing-api:{action}")
+                    store.log_push(conn, svc["key"])
                     pushed += 1
                     i += 1
                 except Exception as e:  # noqa: BLE001
@@ -308,17 +309,20 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         conn.close()
 
 
-def build_pushers(service_account_keys, use_indexing_api):
-    """One 200/day budget per GCP project (key)."""
+def build_pushers(service_account_keys, use_indexing_api, conn=None):
+    """One 200/day budget per GCP project (key). When a DB connection is
+    given, the budget starts at 200 minus what this key already pushed today
+    (quota day = Pacific Time, matching Google's reset)."""
     pushers = []
     if not use_indexing_api:
         return pushers
+    used = store.push_usage_today(conn) if conn else {}
     for k in service_account_keys:
         try:
             pushers.append({
                 "key": k,
                 "svc": gsc.indexing_service(k),
-                "budget": INDEXING_DAILY_PROJECT_CAP,
+                "budget": max(0, INDEXING_DAILY_PROJECT_CAP - used.get(k, 0)),
             })
         except Exception as e:  # noqa: BLE001
             print(f"  ! indexing service failed for {k}: {e}")
@@ -339,7 +343,11 @@ def main():
     key_path = keys[0]
     db_path = cfg.get("db_path", "indexing.db")
     push_lock = threading.Lock()
-    pushers = build_pushers(keys, cfg.get("use_indexing_api"))
+    uconn = store.connect(db_path)
+    try:
+        pushers = build_pushers(keys, cfg.get("use_indexing_api"), uconn)
+    finally:
+        uconn.close()
 
     prop_workers = int(cfg.get("property_workers", 3))
 
