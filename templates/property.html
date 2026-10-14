@@ -120,10 +120,12 @@
   <form method="get" action="/p/{{ p.id }}" style="margin-bottom:10px"><input type="hidden" name="f" value="{{ filt }}">
     <div class="row"><input type="text" name="q" value="{{ q }}" placeholder="Search URL…" style="flex:1;min-width:200px"><button class="btn sm ghost">Search</button><a class="btn sm ghost" href="/p/{{ p.id }}/export?f={{ filt }}{% if q %}&q={{ q|urlencode }}{% endif %}" title="Download this filtered list as CSV">⬇ Export CSV</a></div>
   </form>
-  <form method="post" action="/p/{{ p.id }}/bulk">
+  <form method="post" action="/p/{{ p.id }}/bulk" id="bulkform">
   <div class="row" style="margin-bottom:10px">
     <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API</option><option value="delete">Remove selected from tracking</option></select>
     <button class="btn sm">Apply to selected</button>
+    <button type="button" class="btn sm ghost" id="copybtn" title="Copy selected URLs to clipboard">📋 Copy</button>
+    <button type="button" class="btn sm danger" id="delbtn" title="Delete selected URLs from tracking">🗑 Delete</button>
     <span class="mut">{{ count }} URLs{% if not indexing_enabled %} · Indexing API disabled in Settings{% endif %}</span>
   </div>
   <div style="overflow-x:auto">
@@ -155,5 +157,26 @@ fetch("/api/history/{{ p.id }}").then(r=>r.json()).then(d=>{
       {label:"Total tracked",data:d.total,borderColor:"#38bdf8",tension:.3,fill:false}]},
     options:{plugins:{legend:{labels:{color:"#94a3b8"}}},scales:{x:{ticks:{color:"#94a3b8"}},y:{ticks:{color:"#94a3b8"}}}}});
 });
+</script>
+<script>
+function selUrls(){return [...document.querySelectorAll('.u:checked')].map(c=>c.value);}
+document.getElementById('copybtn').onclick=async()=>{
+  const u=selUrls();
+  if(!u.length){alert('Select URLs first.');return;}
+  const t=u.join('\n');
+  try{await navigator.clipboard.writeText(t);}
+  catch(e){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(_){}ta.remove();}
+  const b=document.getElementById('copybtn'),o=b.textContent;
+  b.textContent='✓ Copied '+u.length;setTimeout(()=>{b.textContent=o;},1600);
+};
+document.getElementById('delbtn').onclick=()=>{
+  const u=selUrls();
+  if(!u.length){alert('Select URLs first.');return;}
+  if(confirm('Delete '+u.length+' selected URLs from tracking? This cannot be undone.')){
+    const f=document.getElementById('bulkform');
+    f.querySelector('select[name=action]').value='delete';
+    f.submit();
+  }
+};
 </script>
 {% endblock %}
