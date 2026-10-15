@@ -11,6 +11,7 @@ import json
 import os
 import re
 import threading
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,7 @@ from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    Response, session, url_for)
 
 import ai
+import bing
 import crawl
 import db as store
 import gsc
@@ -98,6 +100,8 @@ DEFAULT_SETTINGS = {
     "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
     "ai_system_prompt": "",        # custom expert instructions; empty = built-in
     "crawl_max_pages": "2000",     # deep-crawl page cap per property
+    "use_bing_api": "false",       # Bing Webmaster URL Submission API
+    "use_indexnow": "false",       # IndexNow (Bing, Yandex, ...) submissions
 }
 
 DB_PATH = os.environ.get("GSC_DB_PATH") or DEFAULT_SETTINGS["db_path"]
@@ -345,6 +349,16 @@ def dashboard():
         conn.close()
 
 
+def _bing_quota_safe(site):
+    """Bing daily/monthly remaining quota, or None (fast-fail, never blocks)."""
+    if not bing.bing_configured():
+        return None
+    try:
+        return bing.get_quota(os.environ["BING_API_KEY"], site, timeout=8)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @app.route("/p/<int:pid>")
 def property_page(pid):
     filt = request.args.get("f", "all")
@@ -379,6 +393,9 @@ def property_page(pid):
             "ai_report": store.get_ai_report(conn, site),
             "ai_running": pid in state.get("ai_running", set()),
             "ai_configured": ai.is_configured(),
+            "bing_on": store.get_setting(conn, "use_bing_api") == "true" and bing.bing_configured(),
+            "indexnow_on": store.get_setting(conn, "use_indexnow") == "true" and bing.indexnow_configured(),
+            "bing_quota": _bing_quota_safe(site),
             "ai_error": state.get("ai_errors", {}).pop(pid, None),
             "crawling": pid in state.get("crawling", set()),
             "crawl_msg": state.get("crawl_done", {}).pop(pid, None),
@@ -423,7 +440,8 @@ def export_urls(pid):
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(["URL", "Status", "Coverage", "First seen", "Last checked",
-                "Last submitted", "Submit attempts", "HTTP status",
+                "Last submitted", "Submit attempts", "Bing submitted",
+                "IndexNow submitted", "HTTP status",
                 "Priority"])
     for u in rows:
         w.writerow([
@@ -431,7 +449,10 @@ def export_urls(pid):
             (u.get("first_seen") or "")[:19],
             (u.get("last_checked") or "")[:19],
             (u.get("last_submitted") or "")[:19],
-            u.get("submit_attempts") or 0, u.get("http_status") or "",
+            u.get("submit_attempts") or 0,
+            (u.get("last_bing_submitted") or "")[:19],
+            (u.get("last_indexnow_submitted") or "")[:19],
+            u.get("http_status") or "",
             "yes" if u.get("priority") else "no",
         ])
     fname = f"{_slug(site)}_{filt}_{datetime.now(timezone.utc):%Y-%m-%d}.csv"
@@ -577,6 +598,41 @@ def bulk_action(pid):
                             flash(f"Push stopped ({svc['key']}): {e}", "error")
                             break
                     flash(f"Pushed {ok} URLs to the Indexing API.", "ok")
+        elif action == "push-bing":
+            if store.get_setting(conn, "use_bing_api") != "true" or not bing.bing_configured():
+                flash("Bing submission is disabled or BING_API_KEY is missing — see Settings.", "error")
+            else:
+                api_key = os.environ["BING_API_KEY"]
+                ok = 0
+                try:
+                    daily_left, _ = bing.get_quota(api_key, site)
+                    todo = [u for u in urls[:max(0, daily_left)]]
+                    for batch in bing.chunked(todo, bing.BING_BATCH_MAX):
+                        bing.submit_url_batch(api_key, site, batch)
+                        for u in batch:
+                            store.mark_bing_submitted(conn, site, u)
+                        ok += len(batch)
+                    if len(urls) > len(todo):
+                        flash(f"Bing daily quota left: {daily_left} — {len(urls) - len(todo)} URLs skipped.", "error")
+                except Exception as e:  # noqa: BLE001
+                    flash(f"Bing push stopped: {e}", "error")
+                flash(f"Submitted {ok} URLs to Bing.", "ok")
+        elif action == "push-indexnow":
+            if store.get_setting(conn, "use_indexnow") != "true" or not bing.indexnow_configured():
+                flash("IndexNow is disabled or INDEXNOW_KEY is missing — see Settings.", "error")
+            else:
+                in_key = os.environ["INDEXNOW_KEY"]
+                host = urllib.parse.urlparse(site).netloc
+                ok = 0
+                try:
+                    for batch in bing.chunked(urls, bing.INDEXNOW_BATCH_MAX):
+                        bing.indexnow_submit(in_key, host, batch)
+                        for u in batch:
+                            store.mark_indexnow_submitted(conn, site, u)
+                        ok += len(batch)
+                except Exception as e:  # noqa: BLE001
+                    flash(f"IndexNow stopped: {e}", "error")
+                flash(f"Submitted {ok} URLs via IndexNow.", "ok")
         return redirect(url_for("property_page", pid=pid))
     finally:
         conn.close()
@@ -793,7 +849,8 @@ def settings():
                 for key in DEFAULT_SETTINGS:
                     if key in ("db_path", "service_account_key"):
                         continue
-                    if key in ("use_indexing_api", "auto_ai_analysis"):
+                    if key in ("use_indexing_api", "auto_ai_analysis",
+                               "use_bing_api", "use_indexnow"):
                         store.set_setting(conn, key,
                                           "true" if form.get(key) else "false")
                     elif key in form:
@@ -815,6 +872,8 @@ def settings():
         return render_template("settings.html", cfg=cfg, props=props, state=state,
                                sa_info=sa_info, quota_info=quota_info,
                                quota_day=store.quota_day(),
+                               bing_key=bing.bing_configured(),
+                               indexnow_key=bing.indexnow_configured(),
                                discovered=state.get("discovered"))
     finally:
         conn.close()

@@ -128,6 +128,15 @@ def connect(path):
     # migrate: http_status for dead-link detection
     if "http_status" not in cols:
         conn.execute("ALTER TABLE urls ADD COLUMN http_status INTEGER")
+    # migrate: Bing + IndexNow submission tracking
+    if "last_bing_submitted" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN last_bing_submitted TEXT")
+    if "bing_attempts" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN bing_attempts INTEGER NOT NULL DEFAULT 0")
+    if "last_indexnow_submitted" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN last_indexnow_submitted TEXT")
+    if "indexnow_attempts" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN indexnow_attempts INTEGER NOT NULL DEFAULT 0")
     # migrate: push_only mode for properties without GSC access
     pcols = [r[1] for r in conn.execute("PRAGMA table_info(properties)").fetchall()]
     if "push_only" not in pcols:
@@ -180,6 +189,48 @@ def mark_submitted(conn, prop, url, note=""):
         (utcnow(), note, prop, url),
     )
     conn.commit()
+
+
+def mark_bing_submitted(conn, prop, url):
+    """Record a successful Bing SubmitUrlBatch acceptance."""
+    conn.execute(
+        "UPDATE urls SET last_bing_submitted=?, bing_attempts=bing_attempts+1 "
+        "WHERE property=? AND url=?",
+        (utcnow(), prop, url),
+    )
+    conn.commit()
+
+
+def mark_indexnow_submitted(conn, prop, url):
+    """Record a successful IndexNow submission."""
+    conn.execute(
+        "UPDATE urls SET last_indexnow_submitted=?, indexnow_attempts=indexnow_attempts+1 "
+        "WHERE property=? AND url=?",
+        (utcnow(), prop, url),
+    )
+    conn.commit()
+
+
+def candidates_for_bing(conn, prop, limit):
+    """Non-indexed URLs never submitted to Bing, priority first."""
+    cur = conn.execute(
+        """SELECT url FROM urls WHERE property=? AND (indexed=0 OR indexed IS NULL)
+           AND last_bing_submitted IS NULL
+           ORDER BY priority DESC, first_seen LIMIT ?""",
+        (prop, limit),
+    )
+    return [r[0] for r in cur.fetchall()]
+
+
+def candidates_for_indexnow(conn, prop, limit):
+    """Non-indexed URLs never submitted via IndexNow, priority first."""
+    cur = conn.execute(
+        """SELECT url FROM urls WHERE property=? AND (indexed=0 OR indexed IS NULL)
+           AND last_indexnow_submitted IS NULL
+           ORDER BY priority DESC, first_seen LIMIT ?""",
+        (prop, limit),
+    )
+    return [r[0] for r in cur.fetchall()]
 
 
 def candidates_for_inspection(conn, prop, limit, stale_hours=72):
@@ -388,7 +439,9 @@ def list_urls(conn, prop, filt="all", search="", limit=500, offset=0):
     params += [limit, offset]
     rows = conn.execute(
         f"""SELECT url, first_seen, last_checked, indexed, index_state,
-                   last_submitted, submit_attempts, priority, http_status
+                   last_submitted, submit_attempts, priority, http_status,
+                   last_bing_submitted, bing_attempts,
+                   last_indexnow_submitted, indexnow_attempts
             FROM urls WHERE property=? {where}
             ORDER BY priority DESC, first_seen DESC LIMIT ? OFFSET ?""",
         params,

@@ -35,6 +35,21 @@ Tip for Groq (free): set `AI_BASE_URL=https://api.groq.com/openai/v1` and
 `AI_MODEL=openai/gpt-oss-20b` — the `llama-3.3-70b-versatile` ID is
 Enterprise-only and returns `model_not_found` on free keys.
 
+**Bing + IndexNow (optional):** alongside Google pushes, the tool can submit
+URLs to Bing Webmaster Tools (`SubmitUrlBatch`, up to ~10,000/day/site) and
+ping IndexNow (Bing, Yandex, …). Honest limit: Bing has no per-URL
+"indexed / not indexed" API — the tool tracks *submissions*, not Bing index
+status. To enable:
+1. Add each site in [Bing Webmaster Tools](https://www.bing.com/webmasters)
+   (it can import your verified GSC properties) and verify ownership.
+2. Bing Webmaster Tools → Settings → API → copy the API key → Render →
+   Environment → add `BING_API_KEY`.
+3. For IndexNow: pick a key string, set Render env var `INDEXNOW_KEY`, and
+   host a file at `https://<each-domain>/<KEY>.txt` whose content is the key.
+4. In the tool: Settings → enable "Bing URL submission" and/or "IndexNow".
+Submissions run automatically in the pipeline and are also available as
+property-page bulk actions ("Push to Bing", "Submit via IndexNow").
+
 ## Option 2 — PythonAnywhere
 
 1. Upload `gsc-indexer.zip` via the **Files** tab and unzip it.

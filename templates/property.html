@@ -31,6 +31,16 @@
       <div class="mut" style="margin-top:6px">Click after you hit <b>Request indexing</b> in Search Console. No API exists for this — the tracker just guards your ~{{ manual_cap }}/day budget.</div>
     </form>
   </div>
+  {% if bing_on or indexnow_on %}
+  <div class="card"><div class="mut">Bing / IndexNow</div>
+    {% if bing_on %}
+      {% if bing_quota %}<div class="stat">{{ bing_quota[0] }}</div><div class="mut">Bing daily submissions left · {{ bing_quota[1] }} monthly left</div>
+      {% else %}<div class="mut">Bing quota unavailable — check API key &amp; site verification in Bing Webmaster Tools.</div>{% endif %}
+    {% endif %}
+    {% if indexnow_on %}<div style="margin-top:6px"><span class="badge b-ok">IndexNow on</span> <span class="mut">pings Bing, Yandex…</span></div>{% endif %}
+    {% if not bing_on and not indexnow_on %}<div class="mut">—</div>{% endif %}
+  </div>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -122,7 +132,7 @@
   </form>
   <form method="post" action="/p/{{ p.id }}/bulk" id="bulkform">
   <div class="row" style="margin-bottom:10px">
-    <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API</option><option value="delete">Remove selected from tracking</option></select>
+    <select name="action" style="width:auto"><option value="priority">Mark high priority</option><option value="unpriority">Clear priority</option><option value="push">Push to Indexing API (Google)</option><option value="push-bing">Push to Bing</option><option value="push-indexnow">Submit via IndexNow</option><option value="delete">Remove selected from tracking</option></select>
     <button class="btn sm">Apply to selected</button>
     <button type="button" class="btn sm ghost" id="copybtn" title="Copy selected URLs to clipboard">📋 Copy</button>
     <button type="button" class="btn sm danger" id="delbtn" title="Delete selected URLs from tracking">🗑 Delete</button>
@@ -130,7 +140,7 @@
   </div>
   <div style="overflow-x:auto">
   <table>
-    <tr><th><input type="checkbox" onclick="document.querySelectorAll('.u').forEach(c=>c.checked=this.checked)"></th><th>URL</th><th>Status</th><th>Coverage</th><th>Last checked</th><th>Submitted</th></tr>
+    <tr><th><input type="checkbox" onclick="document.querySelectorAll('.u').forEach(c=>c.checked=this.checked)"></th><th>URL</th><th>Status</th><th>Coverage</th><th>Last checked</th><th>Submitted</th><th title="Bing Webmaster URL submission">Bing</th><th title="IndexNow submission (Bing, Yandex…)">IndexNow</th></tr>
     {% for u in urls %}
     <tr>
       <td><input type="checkbox" class="u" name="u" value="{{ u.url }}"></td>
@@ -139,6 +149,8 @@
       <td class="mut">{{ u.index_state or '—' }}</td>
       <td>{% if u.last_checked %}<span class="badge b-ok" title="Checked {{ u.last_checked[:16] }}">✅ {{ u.last_checked[:16] }}</span>{% else %}<span class="mut">—</span>{% endif %}</td>
       <td class="mut">{% if u.last_submitted %}✓ {{ u.last_submitted[:10] }} ({{ u.submit_attempts }}×){% else %}—{% endif %}</td>
+      <td class="mut">{% if u.last_bing_submitted %}✓ {{ u.last_bing_submitted[:10] }}{% else %}—{% endif %}</td>
+      <td class="mut">{% if u.last_indexnow_submitted %}✓ {{ u.last_indexnow_submitted[:10] }}{% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

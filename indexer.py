@@ -13,8 +13,10 @@ Run daily, e.g. via cron:
   0 9 * * * /usr/bin/python3 /path/to/indexer.py --config /path/to/config.yaml
 """
 import argparse
+import os
 import re
 import threading
+import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -24,6 +26,7 @@ import yaml
 
 import db as store
 import gsc
+import bing
 
 INDEXING_DAILY_PROJECT_CAP = 200
 
@@ -248,13 +251,13 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
 
         # 3. Indexing API pushes — sequential, shared multi-project budget
         pushed = 0
+        denied = set()  # keys failing the ownership check for THIS property
         if cfg.get("use_indexing_api") and pushers:
             with push_lock:
                 total_budget = sum(p["budget"] for p in pushers)
             cool = int(cfg.get("submit_cooldown_hours", 48))
             subs = store.candidates_for_submission(conn, site, total_budget, cool)
             action = cfg.get("indexing_action", "URL_UPDATED")
-            denied = set()  # keys failing the ownership check for THIS property
             i = 0
             while i < len(subs):
                 u = subs[i]
@@ -290,6 +293,36 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                         svc["budget"] += 1  # refund on failure
                     break
 
+        # 3b. Bing URL submission — batch of 500, quota-aware
+        bing_pushed, bing_error = 0, ""
+        if cfg.get("use_bing_api") and bing.bing_configured():
+            try:
+                api_key = os.environ["BING_API_KEY"]
+                daily_left, _ = bing.get_quota(api_key, site)
+                subs = store.candidates_for_bing(conn, site, max(0, daily_left))
+                for batch in bing.chunked(subs, bing.BING_BATCH_MAX):
+                    bing.submit_url_batch(api_key, site, batch)
+                    for u in batch:
+                        store.mark_bing_submitted(conn, site, u)
+                    bing_pushed += len(batch)
+            except Exception as e:  # noqa: BLE001 — never break the pipeline
+                bing_error = str(e)[:200]
+
+        # 3c. IndexNow — one ping for Bing, Yandex, ... (up to 10k per call)
+        indexnow_pushed, indexnow_error = 0, ""
+        if cfg.get("use_indexnow") and bing.indexnow_configured():
+            try:
+                in_key = os.environ["INDEXNOW_KEY"]
+                host = urllib.parse.urlparse(site).netloc
+                subs = store.candidates_for_indexnow(conn, site, 10000)
+                for batch in bing.chunked(subs, bing.INDEXNOW_BATCH_MAX):
+                    bing.indexnow_submit(in_key, host, batch)
+                    for u in batch:
+                        store.mark_indexnow_submitted(conn, site, u)
+                    indexnow_pushed += len(batch)
+            except Exception as e:  # noqa: BLE001 — never break the pipeline
+                indexnow_error = str(e)[:200]
+
         # 4. sitemap resubmit — official crawl hint for general pages
         sc = _thread_sc(key_path)
         for sm in sitemaps:
@@ -303,7 +336,10 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         return {
             "site": site, "urls": len(all_urls), "new": added,
             "inspected": inspected, "pushed": pushed,
-            "push_denied": sorted(denied), **s,
+            "push_denied": sorted(denied),
+            "bing_pushed": bing_pushed, "bing_error": bing_error,
+            "indexnow_pushed": indexnow_pushed, "indexnow_error": indexnow_error,
+            **s,
         }
     finally:
         conn.close()
