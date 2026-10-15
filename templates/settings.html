@@ -60,7 +60,7 @@
     <label style="display:flex;gap:8px;align-items:center;color:var(--txt)"><input type="checkbox" name="use_indexnow" value="1" {% if cfg.use_indexnow=="true" %}checked{% endif %} style="width:auto"> Enable IndexNow <span class="mut">(Bing, Yandex… — up to 10,000/call)</span></label>
     <div class="mut" style="margin-top:6px">
       {% if bing_key %}<span class="badge b-ok">BING_API_KEY set</span>{% else %}<span class="badge b-warn">BING_API_KEY missing</span> — add it in Render → Environment → <code>BING_API_KEY</code> (get it from Bing Webmaster Tools → Settings → API){% endif %}
-      {% if indexnow_key %}<span class="badge b-ok">INDEXNOW_KEY set</span>{% else %}<span class="badge b-warn">INDEXNOW_KEY missing</span> — set <code>INDEXNOW_KEY</code> env var and host <code>https://&lt;domain&gt;/&lt;KEY&gt;.txt</code> containing the key on every site{% endif %}
+      {% if indexnow_key %}<span class="badge b-ok">IndexNow key set</span>{% else %}<span class="badge b-warn">IndexNow key missing</span> — generate one in the <b>IndexNow key</b> card below{% endif %}
     </div>
     <div class="mut" style="margin-top:6px">Honest limit: Bing has no per-URL "indexed / not indexed" API — the tool tracks <b>submissions</b>, not Bing index status. Submissions are crawl hints, never an indexing guarantee.</div>
     <h3>🤖 AI automation</h3>
@@ -75,6 +75,21 @@
     <div class="mut" style="margin-top:4px">Empty = built-in elite persona (local SEO, technical SEO, AEO/AIO/GEO, Next.js/Tailwind, Indexing API). Your text replaces it entirely.</div>
     <button class="btn" style="margin-top:14px">Save settings</button>
   </form>
+</div>
+<div class="card">
+  <h2>🔑 IndexNow key</h2>
+  <div class="mut" style="margin-bottom:8px">One key for all your sites. The key is public by design (it lives in a <code>.txt</code> file on each site), so the tool stores it safely — no Render env var needed. <code>INDEXNOW_KEY</code> env var overrides it if you ever set one.</div>
+  {% if indexnow_key %}
+    <div class="mut">Current key:</div>
+    <div style="margin:6px 0"><code id="inkey" style="font-size:15px;word-break:break-all">{{ indexnow_key }}</code>
+    <button type="button" class="btn sm ghost" onclick="navigator.clipboard.writeText(document.getElementById('inkey').textContent);this.textContent='✓ Copied';setTimeout(()=>this.textContent='📋 Copy',1500)">📋 Copy</button></div>
+  {% else %}
+    <div class="mut" style="margin-bottom:8px">No key yet — generate one or paste your own.</div>
+  {% endif %}
+  <form method="post" action="/settings/indexnow-key">
+    <div class="row"><input type="text" name="indexnow_key" placeholder="Paste your own key, or leave empty to generate" style="flex:1;min-width:200px"><button class="btn sm">Save / Generate</button></div>
+  </form>
+  <div class="mut" style="margin-top:8px"><b>Then, on every site:</b> host <code>https://&lt;domain&gt;/&lt;KEY&gt;.txt</code> with the key as its only content. After that, open any property → <b>Verify setup</b> to confirm the file is live.</div>
 </div>
 <div>
 <div class="card">

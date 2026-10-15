@@ -49,6 +49,13 @@ def indexnow_configured():
     return bool(os.environ.get("INDEXNOW_KEY"))
 
 
+def resolve_indexnow_key(db_value=""):
+    """Effective IndexNow key: INDEXNOW_KEY env var wins, otherwise the
+    key stored in the tool's settings. The key is public by design (it is
+    hosted as https://<host>/<key>.txt), so DB storage is safe."""
+    return os.environ.get("INDEXNOW_KEY", "") or (db_value or "")
+
+
 def _post_json(url, payload, timeout=30):
     req = urllib.request.Request(
         url,

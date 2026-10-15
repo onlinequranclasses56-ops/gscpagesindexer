@@ -44,8 +44,11 @@ status. To enable:
    (it can import your verified GSC properties) and verify ownership.
 2. Bing Webmaster Tools → Settings → API → copy the API key → Render →
    Environment → add `BING_API_KEY`.
-3. For IndexNow: pick a key string, set Render env var `INDEXNOW_KEY`, and
-   host a file at `https://<each-domain>/<KEY>.txt` whose content is the key.
+3. For IndexNow: open the tool → Settings → **🔑 IndexNow key** card →
+   **Save / Generate** (leave empty to generate). The key is public by design
+   (it lives in a `.txt` file), so the tool stores it safely — no env var
+   needed (`INDEXNOW_KEY` env var overrides it if ever set). Then host a file
+   at `https://<each-domain>/<KEY>.txt` whose content is the key.
 4. In the tool: Settings → enable "Bing URL submission" and/or "IndexNow".
 Submissions run automatically in the pipeline and are also available as
 property-page bulk actions ("Push to Bing", "Submit via IndexNow").

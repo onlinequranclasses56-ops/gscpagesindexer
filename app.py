@@ -10,8 +10,10 @@ import io
 import json
 import os
 import re
+import secrets
 import threading
 import urllib.parse
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
@@ -102,6 +104,7 @@ DEFAULT_SETTINGS = {
     "crawl_max_pages": "2000",     # deep-crawl page cap per property
     "use_bing_api": "false",       # Bing Webmaster URL Submission API
     "use_indexnow": "false",       # IndexNow (Bing, Yandex, ...) submissions
+    "indexnow_key": "",            # IndexNow key (public by design; env INDEXNOW_KEY overrides)
 }
 
 DB_PATH = os.environ.get("GSC_DB_PATH") or DEFAULT_SETTINGS["db_path"]
@@ -159,6 +162,9 @@ def current_config():
             "use_indexing_api": raw["use_indexing_api"] == "true",
             "indexing_action": raw["indexing_action"] or "URL_UPDATED",
             "submit_cooldown_hours": int(raw["submit_cooldown_hours"] or 48),
+            "use_bing_api": raw["use_bing_api"] == "true",
+            "use_indexnow": raw["use_indexnow"] == "true",
+            "indexnow_key": raw["indexnow_key"] or "",
         }
     finally:
         conn.close()
@@ -359,6 +365,24 @@ def _bing_quota_safe(site):
         return None
 
 
+def _indexnow_key(conn):
+    """Effective IndexNow key (env override, else tool settings)."""
+    return bing.resolve_indexnow_key(store.get_setting(conn, "indexnow_key"))
+
+
+def _indexnow_keyfile_ok(host, key, timeout=10):
+    """True if https://<host>/<key>.txt is live and contains the key."""
+    if not host or not key:
+        return False
+    req = urllib.request.Request(f"https://{host}/{key}.txt",
+                                 headers={"User-Agent": "GSC-Indexer/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status == 200 and resp.read().decode(errors="replace").strip() == key
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.route("/p/<int:pid>")
 def property_page(pid):
     filt = request.args.get("f", "all")
@@ -394,7 +418,7 @@ def property_page(pid):
             "ai_running": pid in state.get("ai_running", set()),
             "ai_configured": ai.is_configured(),
             "bing_on": store.get_setting(conn, "use_bing_api") == "true" and bing.bing_configured(),
-            "indexnow_on": store.get_setting(conn, "use_indexnow") == "true" and bing.indexnow_configured(),
+            "indexnow_on": store.get_setting(conn, "use_indexnow") == "true" and bool(_indexnow_key(conn)),
             "bing_quota": _bing_quota_safe(site),
             "ai_error": state.get("ai_errors", {}).pop(pid, None),
             "crawling": pid in state.get("crawling", set()),
@@ -618,10 +642,10 @@ def bulk_action(pid):
                     flash(f"Bing push stopped: {e}", "error")
                 flash(f"Submitted {ok} URLs to Bing.", "ok")
         elif action == "push-indexnow":
-            if store.get_setting(conn, "use_indexnow") != "true" or not bing.indexnow_configured():
-                flash("IndexNow is disabled or INDEXNOW_KEY is missing — see Settings.", "error")
+            in_key = _indexnow_key(conn)
+            if store.get_setting(conn, "use_indexnow") != "true" or not in_key:
+                flash("IndexNow is disabled or no key is set — see Settings.", "error")
             else:
-                in_key = os.environ["INDEXNOW_KEY"]
                 host = urllib.parse.urlparse(site).netloc
                 ok = 0
                 try:
@@ -633,6 +657,43 @@ def bulk_action(pid):
                 except Exception as e:  # noqa: BLE001
                     flash(f"IndexNow stopped: {e}", "error")
                 flash(f"Submitted {ok} URLs via IndexNow.", "ok")
+        return redirect(url_for("property_page", pid=pid))
+    finally:
+        conn.close()
+
+
+@app.post("/p/<int:pid>/bing-verify")
+def bing_verify(pid):
+    """One-click health check for this property: is the site registered in
+    Bing Webmaster Tools (live quota), and is the IndexNow key file hosted?"""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+            return redirect(url_for("dashboard"))
+        site = p["site_url"]
+        # Bing
+        if store.get_setting(conn, "use_bing_api") == "true" and bing.bing_configured():
+            try:
+                d, m = bing.get_quota(os.environ["BING_API_KEY"], site, timeout=10)
+                flash(f"Bing ✓ — site registered, {d} daily / {m} monthly submissions left.", "ok")
+            except Exception as e:  # noqa: BLE001
+                flash(f"Bing ✗ — {e}. Add & verify this site in Bing Webmaster Tools "
+                      f"({site}).", "error")
+        else:
+            flash("Bing ✗ — disabled or BING_API_KEY missing (see Settings).", "error")
+        # IndexNow
+        in_key = _indexnow_key(conn)
+        host = urllib.parse.urlparse(site).netloc
+        if store.get_setting(conn, "use_indexnow") == "true" and in_key:
+            if _indexnow_keyfile_ok(host, in_key):
+                flash(f"IndexNow ✓ — key file live at https://{host}/{in_key}.txt", "ok")
+            else:
+                flash(f"IndexNow ✗ — key file not found at https://{host}/{in_key}.txt. "
+                      f"Host it with the key as its content.", "error")
+        else:
+            flash("IndexNow ✗ — disabled or no key set (see Settings).", "error")
         return redirect(url_for("property_page", pid=pid))
     finally:
         conn.close()
@@ -873,13 +934,34 @@ def settings():
                                sa_info=sa_info, quota_info=quota_info,
                                quota_day=store.quota_day(),
                                bing_key=bing.bing_configured(),
-                               indexnow_key=bing.indexnow_configured(),
+                               indexnow_key=_indexnow_key(conn),
                                discovered=state.get("discovered"))
     finally:
         conn.close()
 
 
 # ---------------- GSC property discovery ----------------
+
+@app.post("/settings/indexnow-key")
+def save_indexnow_key():
+    """Save a custom IndexNow key or generate a fresh one. The key is public
+    by design (hosted as https://<host>/<key>.txt), so DB storage is safe.
+    INDEXNOW_KEY env var overrides it when set."""
+    conn = db()
+    try:
+        key = (request.form.get("indexnow_key") or "").strip()
+        if not key:
+            key = secrets.token_hex(16)
+            flash(f"Generated new IndexNow key: {key}", "ok")
+        else:
+            flash("IndexNow key saved.", "ok")
+        store.set_setting(conn, "indexnow_key", key)
+        flash("Next: host https://<each-domain>/" + key + ".txt containing the key, "
+              "then use Verify setup on each property.", "ok")
+        return redirect(url_for("settings"))
+    finally:
+        conn.close()
+
 
 @app.post("/settings/discover-sites")
 def discover_sites():

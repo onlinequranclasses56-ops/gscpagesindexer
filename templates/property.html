@@ -39,6 +39,7 @@
     {% endif %}
     {% if indexnow_on %}<div style="margin-top:6px"><span class="badge b-ok">IndexNow on</span> <span class="mut">pings Bing, Yandex…</span></div>{% endif %}
     {% if not bing_on and not indexnow_on %}<div class="mut">—</div>{% endif %}
+    <form method="post" action="/p/{{ p.id }}/bing-verify" style="margin-top:8px"><button class="btn sm ghost">✓ Verify Bing/IndexNow setup</button></form>
   </div>
   {% endif %}
 </div>

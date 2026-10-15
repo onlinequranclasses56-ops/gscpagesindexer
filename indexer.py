@@ -310,9 +310,9 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
 
         # 3c. IndexNow — one ping for Bing, Yandex, ... (up to 10k per call)
         indexnow_pushed, indexnow_error = 0, ""
-        if cfg.get("use_indexnow") and bing.indexnow_configured():
+        in_key = bing.resolve_indexnow_key(cfg.get("indexnow_key"))
+        if cfg.get("use_indexnow") and in_key:
             try:
-                in_key = os.environ["INDEXNOW_KEY"]
                 host = urllib.parse.urlparse(site).netloc
                 subs = store.candidates_for_indexnow(conn, site, 10000)
                 for batch in bing.chunked(subs, bing.INDEXNOW_BATCH_MAX):
