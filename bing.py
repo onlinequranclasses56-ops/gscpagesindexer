@@ -118,7 +118,9 @@ def indexnow_submit(key, host, urls, key_location=None):
         status, body = _post_json(INDEXNOW_ENDPOINT, payload)
     except BingError as e:
         raise IndexNowError(str(e)) from e
-    if status == 200:
+    if 200 <= status < 300:
+        # 200 OK = received; 202 Accepted = received, queued for async
+        # processing. Both are success states.
         return len(urls)
     if status == 429:
         raise IndexNowError("HTTP 429: IndexNow rate limit — try again later")
