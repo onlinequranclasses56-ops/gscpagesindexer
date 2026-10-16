@@ -137,6 +137,8 @@
     <button class="btn sm">Apply to selected</button>
     <button type="button" class="btn sm ghost" id="copybtn" title="Copy selected URLs to clipboard">📋 Copy</button>
     <button type="button" class="btn sm danger" id="delbtn" title="Delete selected URLs from tracking">🗑 Delete</button>
+    <input type="number" id="selN" min="1" placeholder="#" style="width:64px" title="Type a number, then Select N">
+    <button type="button" class="btn sm ghost" id="selNbtn" title="Check the first N URLs in the current list (highest priority first)">Select N</button>
     <span class="mut">{{ count }} URLs{% if not indexing_enabled %} · Indexing API disabled in Settings{% endif %}</span>
   </div>
   <div style="overflow-x:auto">
@@ -194,5 +196,15 @@ document.getElementById('delbtn').onclick=()=>{
     f.submit();
   }
 };
+function selectFirstN(){
+  const n=parseInt(document.getElementById('selN').value,10);
+  if(!n||n<1){alert('Type how many URLs to select first.');return;}
+  const boxes=[...document.querySelectorAll('.u')];
+  boxes.forEach((c,i)=>{c.checked=i<n;});
+  const b=document.getElementById('selNbtn'),o='Select N',k=Math.min(n,boxes.length);
+  b.textContent='✓ '+k+' selected';setTimeout(()=>{b.textContent=o;},1600);
+}
+document.getElementById('selNbtn').onclick=selectFirstN;
+document.getElementById('selN').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();selectFirstN();}});
 </script>
 {% endblock %}
