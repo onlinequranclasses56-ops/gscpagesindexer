@@ -67,6 +67,7 @@
   <div class="row" style="margin-top:12px">
     <a class="btn sm" href="/p/{{ p.id }}">Open</a>
     <form method="post" action="/p/{{ p.id }}/run" style="margin:0"><button class="btn sm ghost" {% if state.running %}disabled{% endif %}>Sync now</button></form>
+    <form method="post" action="/p/{{ p.id }}/delete" style="margin:0" onsubmit="return confirm('Remove {{ p.site_url }} and ALL its tracked URLs, snapshots and reports? This cannot be undone.')"><button class="btn sm danger">🗑 Remove</button></form>
   </div>
 </div>
 {% else %}

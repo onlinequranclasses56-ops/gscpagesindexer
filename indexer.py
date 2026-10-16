@@ -226,6 +226,12 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
     workers = int(cfg.get("inspection_workers", 6))
     conn = store.connect(db_path)
     try:
+        # 0. dedupe: one page appears exactly once (trailing-slash, utm,
+        # fragment and case variants merged into a single row)
+        try:
+            deduped = store.merge_duplicate_urls(conn, site)
+        except Exception:  # noqa: BLE001 — never break the pipeline
+            deduped = 0
         # 1. sitemap sync (auto-discover when not configured)
         sitemaps = prop.get("sitemaps") or discover_sitemaps(site)
         if sitemaps and not prop.get("sitemaps"):
@@ -335,6 +341,7 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         store.save_snapshot(conn, site, s["total"], s["indexed"])
         return {
             "site": site, "urls": len(all_urls), "new": added,
+            "deduped": deduped,
             "inspected": inspected, "pushed": pushed,
             "push_denied": sorted(denied),
             "bing_pushed": bing_pushed, "bing_error": bing_error,

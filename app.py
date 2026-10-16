@@ -256,7 +256,7 @@ def run_pipeline(property_ids=None):
         finally:
             conn.close()
 
-        done, failed, pushed = 0, 0, 0
+        done, failed, pushed, deduped = 0, 0, 0, 0
 
         def work(p):
             prop = {"site_url": p["site_url"],
@@ -276,12 +276,15 @@ def run_pipeline(property_ids=None):
                 if status == "ok":
                     done += 1
                     pushed += rep.get("pushed", 0)
+                    deduped += rep.get("deduped", 0)
                 else:
                     failed += 1
 
         state["last_run"] = utcnow()
         state["last_summary"] = (f"{done} properties synced, {failed} failed, "
                                  f"{pushed} URLs pushed")
+        if deduped:
+            state["last_summary"] += f", {deduped} duplicates merged"
         ai_n = _auto_ai_pass(cfg)
         if ai_n:
             state["last_summary"] += f", {ai_n} AI-analyzed"
@@ -694,6 +697,39 @@ def bing_verify(pid):
                       f"Host it with the key as its content.", "error")
         else:
             flash("IndexNow ✗ — disabled or no key set (see Settings).", "error")
+        return redirect(url_for("property_page", pid=pid))
+    finally:
+        conn.close()
+
+
+@app.post("/p/<int:pid>/delete")
+def delete_property_route(pid):
+    """Remove a property and ALL its tracked URLs, snapshots and reports."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+        else:
+            store.delete_property(conn, pid)
+            flash(f"Removed {p['site_url']} and all its tracked data.", "ok")
+        return redirect(url_for("dashboard"))
+    finally:
+        conn.close()
+
+
+@app.post("/p/<int:pid>/dedupe")
+def dedupe_property(pid):
+    """One click: merge duplicate page variants into single rows."""
+    conn = db()
+    try:
+        p = store.get_property(conn, pid)
+        if not p:
+            flash("Property not found.", "error")
+        else:
+            n = store.merge_duplicate_urls(conn, p["site_url"])
+            flash(f"Merged {n} duplicate URLs — each page now appears once." if n
+                  else "No duplicates found — each page already appears once.", "ok")
         return redirect(url_for("property_page", pid=pid))
     finally:
         conn.close()

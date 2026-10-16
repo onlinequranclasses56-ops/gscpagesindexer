@@ -157,6 +157,9 @@
   </table>
   </div>
   </form>
+  <form method="post" action="/p/{{ p.id }}/dedupe" style="margin:10px 0 0">
+    <button class="btn sm ghost" title="Merge duplicate page variants (trailing slash, utm params, fragments, case) into single rows">🧹 Deduplicate URLs</button>
+  </form>
   <div class="mut" style="margin-top:8px">Showing up to 500. Use search/filters to narrow down.</div>
 </div>
 

@@ -1,6 +1,7 @@
 """SQLite tracking for the GSC indexer (CLI + web dashboard)."""
 import json
 import sqlite3
+import urllib.parse
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -164,13 +165,103 @@ def upsert_new(conn, prop, urls):
     cur = conn.cursor()
     added = 0
     for u in urls:
+        # Canonicalize on the way in: https://x.com/a, https://x.com/a/,
+        # https://x.com/a?utm_x=1 and https://x.com/a#frag are ONE page.
+        cu = canonicalize_url(u)
         cur.execute(
             "INSERT OR IGNORE INTO urls (property, url, first_seen) VALUES (?, ?, ?)",
-            (prop, u, now),
+            (prop, cu, now),
         )
         added += cur.rowcount
     conn.commit()
     return added
+
+
+# Params that never change the page — stripped for dedup purposes.
+_TRACK_PARAMS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "fbclid", "gclid", "msclkid", "igshid", "mc_cid", "mc_eid",
+    "dclid", "wbraid", "gbraid",
+})
+
+
+def canonicalize_url(url):
+    """Canonical form of a URL for dedup: lowercase scheme/host, default
+    ports dropped, fragment dropped, trailing slash stripped (except root),
+    tracking params removed, remaining query sorted. Path case is kept."""
+    try:
+        p = urllib.parse.urlparse((url or "").strip())
+    except Exception:  # noqa: BLE001
+        return url
+    if p.scheme.lower() not in ("http", "https") or not p.netloc:
+        return url
+    scheme = p.scheme.lower()
+    host = p.netloc.lower()
+    if (scheme == "http" and host.endswith(":80")) or \
+       (scheme == "https" and host.endswith(":443")):
+        host = host.rsplit(":", 1)[0]
+    path = p.path or "/"
+    if len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    try:
+        q = sorted(
+            (k, v) for k, v in urllib.parse.parse_qsl(p.query, keep_blank_values=True)
+            if k.lower() not in _TRACK_PARAMS
+        )
+    except Exception:  # noqa: BLE001
+        q = []
+    return urllib.parse.urlunparse(
+        (scheme, host, path, "", urllib.parse.urlencode(q), ""))
+
+
+def merge_duplicate_urls(conn, prop):
+    """Merge rows that canonicalize to the same URL. Keeps one survivor per
+    page (indexed wins, then earliest seen), folding timestamps/attempts.
+    Returns the number of removed duplicate rows."""
+    rows = [dict(r) for r in
+            conn.execute("SELECT * FROM urls WHERE property=?", (prop,)).fetchall()]
+    groups = {}
+    for r in rows:
+        groups.setdefault(canonicalize_url(r["url"]), []).append(r)
+    merged = 0
+    for canon, members in groups.items():
+        if len(members) < 2:
+            # Still normalize the stored form so future imports match.
+            if members[0]["url"] != canon:
+                conn.execute("UPDATE urls SET url=? WHERE property=? AND url=?",
+                             (canon, prop, members[0]["url"]))
+            continue
+        members.sort(key=lambda r: (0 if r["indexed"] else 1, r["first_seen"] or ""))
+        keep = members[0]
+        freshest = max(members, key=lambda r: r["last_checked"] or "")
+        drop = [r["url"] for r in members[1:] if r["url"] != keep["url"]]
+        # Delete losers FIRST — the survivor's canonical URL may collide
+        # with a loser's current URL (UNIQUE constraint).
+        for du in drop:
+            conn.execute("DELETE FROM urls WHERE property=? AND url=?", (prop, du))
+        conn.execute(
+            """UPDATE urls SET url=?, first_seen=?, last_checked=?, indexed=?, index_state=?,
+               last_submitted=?, submit_attempts=?, priority=?, http_status=?,
+               last_bing_submitted=?, bing_attempts=?,
+               last_indexnow_submitted=?, indexnow_attempts=?
+               WHERE property=? AND url=?""",
+            (canon,
+             min(r["first_seen"] or "" for r in members) or None,
+             max([r["last_checked"] or "" for r in members]) or None,
+             max(r["indexed"] or 0 for r in members),
+             freshest["index_state"],
+             max([r["last_submitted"] or "" for r in members]) or None,
+             sum(r["submit_attempts"] or 0 for r in members),
+             max(r["priority"] or 0 for r in members),
+             freshest["http_status"],
+             max([r["last_bing_submitted"] or "" for r in members]) or None,
+             sum(r["bing_attempts"] or 0 for r in members),
+             max([r["last_indexnow_submitted"] or "" for r in members]) or None,
+             sum(r["indexnow_attempts"] or 0 for r in members),
+             prop, keep["url"]))
+        merged += len(drop)
+    conn.commit()
+    return merged
 
 
 def mark_checked(conn, prop, url, indexed, index_state):
