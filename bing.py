@@ -100,6 +100,21 @@ def get_quota(api_key, site_url, timeout=20):
     return int(d.get("DailyQuota", 0) or 0), int(d.get("MonthlyQuota", 0) or 0)
 
 
+def _indexnow_key_error(host, key, body):
+    """Tailored 403 message based on IndexNow's errorCode."""
+    try:
+        code = json.loads(body).get("errorCode", "") if body else ""
+    except Exception:  # noqa: BLE001
+        code = ""
+    if code == "SiteVerificationNotCompleted":
+        return ("HTTP 403: IndexNow hasn't finished verifying this domain yet — "
+                "the key file was found but verification is still in progress. "
+                "Wait a while, then retry. "
+                f"(Key file: https://{host}/{key}.txt)")
+    return ("HTTP 403: key not accepted — is https://"
+            f"{host}/{key}.txt hosted with the key as its content?")
+
+
 def indexnow_submit(key, host, urls, key_location=None):
     """Submit URLs via IndexNow (Bing, Yandex, ...). Up to 10000 per call.
     Returns the number submitted."""
@@ -114,10 +129,18 @@ def indexnow_submit(key, host, urls, key_location=None):
         "keyLocation": key_location or f"https://{host}/{key}.txt",
         "urlList": urls,
     }
+    req = urllib.request.Request(
+        INDEXNOW_ENDPOINT,
+        data=json.dumps(payload).encode(),
+        headers={**_UA, "Content-Type": "application/json; charset=utf-8"},
+    )
     try:
-        status, body = _post_json(INDEXNOW_ENDPOINT, payload)
-    except BingError as e:
-        raise IndexNowError(str(e)) from e
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status, body = resp.status, resp.read().decode(errors="replace")
+    except urllib.error.HTTPError as e:
+        status, body = e.code, e.read().decode(errors="replace")
+    except Exception as e:  # noqa: BLE001 — timeouts, DNS, refused
+        raise IndexNowError(f"IndexNow request failed: {e}") from e
     if 200 <= status < 300:
         # 200 OK = received; 202 Accepted = received, queued for async
         # processing. Both are success states.
@@ -125,11 +148,10 @@ def indexnow_submit(key, host, urls, key_location=None):
     if status == 429:
         raise IndexNowError("HTTP 429: IndexNow rate limit — try again later")
     if status in (400, 422):
-        raise IndexNowError(f"HTTP {status}: rejected — {body.decode(errors='replace')[:200]}")
+        raise IndexNowError(f"HTTP {status}: rejected — {body[:200]}")
     if status == 403:
-        raise IndexNowError("HTTP 403: key not accepted — is https://"
-                            f"{host}/{key}.txt hosted with the key as its content?")
-    raise IndexNowError(f"IndexNow returned HTTP {status}")
+        raise IndexNowError(_indexnow_key_error(host, key, body))
+    raise IndexNowError(f"IndexNow returned HTTP {status}: {body[:200]}")
 
 
 def chunked(urls, n):
