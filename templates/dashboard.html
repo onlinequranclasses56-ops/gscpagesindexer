@@ -3,17 +3,22 @@
 {% block content %}
 <div class="row" style="justify-content:space-between;margin-bottom:14px">
   <h1>Dashboard</h1>
-  <form method="post" action="/run-all"><button class="btn" {% if state.running %}disabled{% endif %}>▶ Run all now</button></form>
+  <div class="row">
+    <span id="runpill" class="badge b-ok" {% if not state.running %}style="display:none"{% endif %}>🔄 Syncing…</span>
+    <button type="button" class="btn sm ghost" id="freshbtn" title="Refresh dashboard data now">🔄 Fresh</button>
+    <form method="post" action="/run-all" style="margin:0"><button class="btn" {% if state.running %}disabled{% endif %}>▶ Run all now</button></form>
+  </div>
 </div>
+<div class="mut" style="font-size:12px;margin:-8px 0 14px">Live view — numbers refresh automatically every 5 seconds while this page is open.</div>
 {% if state.last_error %}<div class="flash error">Last run error: {{ state.last_error }}</div>{% endif %}
-{% if state.last_summary %}<div class="flash ok">{{ state.last_summary }} ({{ state.last_run[:16].replace('T',' ') }})</div>{% endif %}
+{% if state.last_summary %}<div class="flash ok" id="lastsummary">{{ state.last_summary }} ({{ state.last_run[:16].replace('T',' ') }})</div>{% else %}<div class="flash ok" id="lastsummary" style="display:none"></div>{% endif %}
 {% if deindexed_total %}<div class="flash error">▼ {{ deindexed_total }} page{{ 's' if deindexed_total != 1 }} deindexed since yesterday — review the properties below.</div>{% endif %}
 {% if newly_indexed_total %}<div class="flash ok">▲ {{ newly_indexed_total }} page{{ 's' if newly_indexed_total != 1 }} newly indexed since yesterday.</div>{% endif %}
 
 <div class="grid" style="margin-bottom:16px">
-  <div class="card"><div class="mut">Properties</div><div class="stat">{{ totals.properties }}</div></div>
-  <div class="card"><div class="mut">URLs tracked</div><div class="stat">{{ totals.urls }}</div></div>
-  <div class="card"><div class="mut">Indexed overall</div><div class="stat">{{ totals.pct }}%</div><div class="bar"><div style="width:{{ totals.pct }}%"></div></div><div class="mut">{{ totals.indexed }} / {{ totals.urls }}</div></div>
+  <div class="card"><div class="mut">Properties</div><div class="stat" id="tot-props">{{ totals.properties }}</div></div>
+  <div class="card"><div class="mut">URLs tracked</div><div class="stat" id="tot-urls">{{ totals.urls }}</div></div>
+  <div class="card"><div class="mut">Indexed overall</div><div class="stat" id="tot-pct">{{ totals.pct }}%</div><div class="bar"><div id="tot-bar" style="width:{{ totals.pct }}%"></div></div><div class="mut" id="tot-counts">{{ totals.indexed }} / {{ totals.urls }}</div></div>
 </div>
 
 {% if attention %}
@@ -46,18 +51,16 @@
 
 <div class="grid">
 {% for p in props %}
-<div class="card">
+<div class="card" data-pid="{{ p.id }}">
   <div class="row" style="justify-content:space-between">
     <strong style="word-break:break-all">{{ p.site_url }}</strong>
     {% if not p.active %}<span class="badge b-mut">paused</span>{% endif %}
   </div>
-  <div class="bar"><div style="width:{{ p.pct }}%"></div></div>
+  <div class="bar"><div class="pbar" style="width:{{ p.pct }}%"></div></div>
   <div class="row" style="gap:14px">
-    <span><b>{{ p.pct }}%</b> <span class="mut">indexed</span></span>
-    <span class="mut">{{ p.indexed }}/{{ p.total }}</span>
-    {% if p.stuck %}<span class="badge b-warn">{{ p.stuck }} stuck</span>{% endif %}
-    {% if p.unchecked %}<span class="badge b-mut">{{ p.unchecked }} unchecked</span>{% endif %}
-    {% if p.trend %}<span class="badge {{ 'b-ok' if p.trend > 0 else 'b-bad' }}">{{ '+' if p.trend > 0 }}{{ p.trend }} vs yesterday</span>{% endif %}
+    <span><b class="ppct">{{ p.pct }}%</b> <span class="mut">indexed</span></span>
+    <span class="mut pcounts">{{ p.indexed }}/{{ p.total }}</span>
+    <span class="pbadges">{% if p.stuck %}<span class="badge b-warn">{{ p.stuck }} stuck</span>{% endif %}{% if p.unchecked %}<span class="badge b-mut">{{ p.unchecked }} unchecked</span>{% endif %}{% if p.trend %}<span class="badge {{ 'b-ok' if p.trend > 0 else 'b-bad' }}">{{ '+' if p.trend > 0 }}{{ p.trend }} vs yesterday</span>{% endif %}</span>
   </div>
   {% if p.sitemaps %}
   <div class="mut" style="margin-top:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ p.sitemaps|join('&#10;') }}">🗺 {{ p.sitemaps[0].replace('https://','').replace('http://','') }}{% if p.sitemaps|length > 1 %} <span class="badge b-mut">+{{ p.sitemaps|length - 1 }}</span>{% endif %}</div>
@@ -88,4 +91,50 @@
   {% endfor %}
 </div>
 {% endif %}
+<script>
+function badgeHTML(d){
+  let h='';
+  if(d.stuck)h+='<span class="badge b-warn">'+d.stuck+' stuck</span>';
+  if(d.unchecked)h+='<span class="badge b-mut">'+d.unchecked+' unchecked</span>';
+  if(d.trend)h+='<span class="badge '+(d.trend>0?'b-ok':'b-bad')+'">'+(d.trend>0?'+':'')+d.trend+' vs yesterday</span>';
+  return h;
+}
+async function refreshOverview(){
+  try{
+    const r=await fetch('/api/overview',{cache:'no-store'});
+    if(!r.ok)return;
+    const d=await r.json();
+    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+    set('tot-props',d.totals.properties);
+    set('tot-urls',d.totals.urls);
+    set('tot-pct',d.totals.pct+'%');
+    const tb=document.getElementById('tot-bar');if(tb)tb.style.width=d.totals.pct+'%';
+    set('tot-counts',d.totals.indexed+' / '+d.totals.urls);
+    const pill=document.getElementById('runpill');if(pill)pill.style.display=d.running?'':'none';
+    const ls=document.getElementById('lastsummary');
+    if(ls){
+      if(d.last_summary){ls.style.display='';ls.textContent=d.last_summary+(d.last_run?' ('+d.last_run.slice(0,16).replace('T',' ')+')':'');}
+      else ls.style.display='none';
+    }
+    const ns=document.getElementById('navstatus');
+    if(ns)ns.innerHTML=d.running?'<span class="spin"></span> sync running…':(d.last_run?'last run: '+d.last_run.slice(0,16).replace('T',' '):'never run');
+    for(const p of d.props){
+      const card=document.querySelector('[data-pid="'+p.id+'"]');
+      if(!card)continue;
+      const bar=card.querySelector('.pbar');if(bar)bar.style.width=p.pct+'%';
+      const pct=card.querySelector('.ppct');if(pct)pct.textContent=p.pct+'%';
+      const c=card.querySelector('.pcounts');if(c)c.textContent=p.indexed+'/'+p.total;
+      const b=card.querySelector('.pbadges');if(b)b.innerHTML=badgeHTML(p);
+    }
+  }catch(e){}
+}
+const freshBtn=document.getElementById('freshbtn');
+if(freshBtn)freshBtn.onclick=()=>{
+  refreshOverview();
+  const o='🔄 Fresh';
+  freshBtn.textContent='✓ Updated';setTimeout(()=>{freshBtn.textContent=o;},1200);
+};
+refreshOverview();
+setInterval(refreshOverview,5000);
+</script>
 {% endblock %}

@@ -70,7 +70,7 @@ a{color:var(--acc)}
   <a href="/settings">Settings</a>
   <span class="sp"></span>
   {% if auth_on and authed %}<a href="/logout" class="mut">Logout</a>{% endif %}
-  <span class="st">{% if state.running %}<span class="spin"></span> sync running…{% elif state.last_run %}last run: {{ state.last_run[:16].replace('T',' ') }}{% else %}never run{% endif %}</span>
+  <span class="st" id="navstatus">{% if state.running %}<span class="spin"></span> sync running…{% elif state.last_run %}last run: {{ state.last_run[:16].replace('T',' ') }}{% else %}never run{% endif %}</span>
 </nav>
 <main>
 {% with ms=get_flashed_messages(with_categories=true) %}{% for c,m in ms %}<div class="flash {{c}}">{{m}}</div>{% endfor %}{% endwith %}

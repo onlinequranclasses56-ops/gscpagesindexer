@@ -146,6 +146,43 @@ def seed_from_config():
         conn.close()
 
 
+def _overview_data():
+    """Lightweight live snapshot for dashboard auto-refresh (no page reload)."""
+    conn = db()
+    try:
+        all_props = []
+        for p in store.list_properties(conn):
+            s = store.summary(conn, p["site_url"])
+            snaps = store.get_snapshots(conn, p["site_url"], 2)
+            trend = (snaps["indexed"][-1] - snaps["indexed"][-2]
+                     if len(snaps["indexed"]) >= 2 else None)
+            all_props.append({
+                "id": p["id"], "active": p["active"],
+                "indexed": s["indexed"], "total": s["total"],
+                "unchecked": s["unchecked"],
+                "stuck": store.stuck_count(conn, p["site_url"]),
+                "trend": trend,
+                "pct": round(100 * s["indexed"] / s["total"]) if s["total"] else 0,
+            })
+        totals = {"properties": sum(1 for p in all_props if p["active"]),
+                  "urls": sum(p["total"] for p in all_props if p["active"]),
+                  "indexed": sum(p["indexed"] for p in all_props if p["active"])}
+        totals["pct"] = (round(100 * totals["indexed"] / totals["urls"])
+                         if totals["urls"] else 0)
+        return {"running": state["running"],
+                "last_run": state.get("last_run"),
+                "last_summary": state.get("last_summary"),
+                "last_error": state.get("last_error"),
+                "totals": totals, "props": all_props}
+    finally:
+        conn.close()
+
+
+@app.route("/api/overview")
+def api_overview():
+    return jsonify(_overview_data())
+
+
 def current_config():
     conn = db()
     try:
