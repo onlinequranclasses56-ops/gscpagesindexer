@@ -161,18 +161,31 @@ def connect(path):
 # ---------------- URL tracking (used by CLI + dashboard) ----------------
 
 def upsert_new(conn, prop, urls):
+    """Track new URLs, storing each in its ORIGINAL form.
+
+    Canonicalization is used ONLY to detect variants of an already-tracked
+    page (/a, /a/, /a?utm_x=1 stay ONE row) — it never rewrites the stored
+    URL, because Google's verdict belongs to the exact URL form.
+    """
     now = utcnow()
     cur = conn.cursor()
+    seen_canon = {canonicalize_url(r[0]) for r in
+                  cur.execute("SELECT url FROM urls WHERE property=?", (prop,)).fetchall()}
     added = 0
     for u in urls:
-        # Canonicalize on the way in: https://x.com/a, https://x.com/a/,
-        # https://x.com/a?utm_x=1 and https://x.com/a#frag are ONE page.
+        u = (u or "").strip()
+        if not u:
+            continue
         cu = canonicalize_url(u)
+        if cu in seen_canon:
+            continue
         cur.execute(
             "INSERT OR IGNORE INTO urls (property, url, first_seen) VALUES (?, ?, ?)",
-            (prop, cu, now),
+            (prop, u, now),
         )
-        added += cur.rowcount
+        if cur.rowcount:
+            added += 1
+            seen_canon.add(cu)
     conn.commit()
     return added
 
@@ -217,6 +230,10 @@ def canonicalize_url(url):
 def merge_duplicate_urls(conn, prop):
     """Merge rows that canonicalize to the same URL. Keeps one survivor per
     page (indexed wins, then earliest seen), folding timestamps/attempts.
+    The survivor keeps its ORIGINAL stored URL — canonicalization is only
+    for grouping and must never rewrite a tracked URL (rewriting broke
+    Google verdicts on 2026-10-16: stripped trailing slashes made Google
+    report 'URL is unknown to Google' for indexed pages).
     Returns the number of removed duplicate rows."""
     rows = [dict(r) for r in
             conn.execute("SELECT * FROM urls WHERE property=?", (prop,)).fetchall()]
@@ -226,27 +243,21 @@ def merge_duplicate_urls(conn, prop):
     merged = 0
     for canon, members in groups.items():
         if len(members) < 2:
-            # Still normalize the stored form so future imports match.
-            if members[0]["url"] != canon:
-                conn.execute("UPDATE urls SET url=? WHERE property=? AND url=?",
-                             (canon, prop, members[0]["url"]))
-            continue
+            continue  # never rewrite a lone row's URL
         members.sort(key=lambda r: (0 if r["indexed"] else 1, r["first_seen"] or ""))
         keep = members[0]
         freshest = max(members, key=lambda r: r["last_checked"] or "")
         drop = [r["url"] for r in members[1:] if r["url"] != keep["url"]]
-        # Delete losers FIRST — the survivor's canonical URL may collide
-        # with a loser's current URL (UNIQUE constraint).
+        # Delete losers FIRST to avoid UNIQUE collisions.
         for du in drop:
             conn.execute("DELETE FROM urls WHERE property=? AND url=?", (prop, du))
         conn.execute(
-            """UPDATE urls SET url=?, first_seen=?, last_checked=?, indexed=?, index_state=?,
+            """UPDATE urls SET first_seen=?, last_checked=?, indexed=?, index_state=?,
                last_submitted=?, submit_attempts=?, priority=?, http_status=?,
                last_bing_submitted=?, bing_attempts=?,
                last_indexnow_submitted=?, indexnow_attempts=?
                WHERE property=? AND url=?""",
-            (canon,
-             min(r["first_seen"] or "" for r in members) or None,
+            (min(r["first_seen"] or "" for r in members) or None,
              max([r["last_checked"] or "" for r in members]) or None,
              max(r["indexed"] or 0 for r in members),
              freshest["index_state"],
@@ -262,6 +273,61 @@ def merge_duplicate_urls(conn, prop):
         merged += len(drop)
     conn.commit()
     return merged
+
+
+def restore_url_forms(conn, prop, true_urls):
+    """Restore tracked URLs to their true (e.g. sitemap) forms.
+
+    One-time repair for the 2026-10-16 canonicalization rewrite, which
+    stripped trailing slashes from stored URLs and caused Google to report
+    'URL is unknown to Google' for pages that are actually indexed.
+    Only touches rows whose canonical form matches a true URL but whose
+    stored form differs; resets last_checked so they are re-inspected
+    promptly. Idempotent. Returns the number of rows restored.
+    """
+    fixed = 0
+    for t in dict.fromkeys((u or "").strip() for u in true_urls or ()):
+        if not t:
+            continue
+        canon = canonicalize_url(t)
+        if canon == t:
+            continue
+        cur = conn.execute("SELECT * FROM urls WHERE property=? AND url=?",
+                           (prop, canon))
+        r = cur.fetchone()
+        if not r:
+            continue
+        r = dict(r)
+        trow = conn.execute("SELECT * FROM urls WHERE property=? AND url=?",
+                            (prop, t)).fetchone()
+        if trow:
+            trow = dict(trow)
+            conn.execute(
+                """UPDATE urls SET first_seen=?, last_checked=NULL, indexed=?,
+                   index_state=?, last_submitted=?, submit_attempts=?, priority=?,
+                   http_status=?, last_bing_submitted=?, bing_attempts=?,
+                   last_indexnow_submitted=?, indexnow_attempts=?
+                   WHERE property=? AND url=?""",
+                (min(trow.get("first_seen") or "", r.get("first_seen") or "") or None,
+                 max(trow.get("indexed") or 0, r.get("indexed") or 0),
+                 trow.get("index_state") or r.get("index_state"),
+                 max(trow.get("last_submitted") or "", r.get("last_submitted") or "") or None,
+                 (trow.get("submit_attempts") or 0) + (r.get("submit_attempts") or 0),
+                 max(trow.get("priority") or 0, r.get("priority") or 0),
+                 trow.get("http_status") or r.get("http_status"),
+                 max(trow.get("last_bing_submitted") or "", r.get("last_bing_submitted") or "") or None,
+                 (trow.get("bing_attempts") or 0) + (r.get("bing_attempts") or 0),
+                 max(trow.get("last_indexnow_submitted") or "", r.get("last_indexnow_submitted") or "") or None,
+                 (trow.get("indexnow_attempts") or 0) + (r.get("indexnow_attempts") or 0),
+                 prop, t))
+            conn.execute("DELETE FROM urls WHERE property=? AND url=?", (prop, canon))
+        else:
+            conn.execute(
+                "UPDATE urls SET url=?, last_checked=NULL WHERE property=? AND url=?",
+                (t, prop, canon))
+        fixed += 1
+    conn.commit()
+    return fixed
 
 
 def mark_checked(conn, prop, url, indexed, index_state):

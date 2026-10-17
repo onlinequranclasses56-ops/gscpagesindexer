@@ -246,6 +246,15 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
         all_urls = list(dict.fromkeys(all_urls))  # dedupe, keep order
         added = store.upsert_new(conn, site, all_urls)
 
+        # 1a. one-time repair: restore true URL forms damaged by the
+        # 2026-10-16 canonicalization rewrite (idempotent; no-op when clean)
+        try:
+            restored = store.restore_url_forms(conn, site, all_urls)
+            if restored:
+                print(f"  restored {restored} URL forms for {site}")
+        except Exception:  # noqa: BLE001 — never break the pipeline
+            pass
+
         # 1b. dead-link hygiene (bounded, best-effort)
         _check_dead_links(conn, site)
 
