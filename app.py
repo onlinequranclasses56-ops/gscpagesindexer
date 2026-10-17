@@ -98,6 +98,7 @@ DEFAULT_SETTINGS = {
     "manual_daily_cap": "10",
     "run_time": "09:00",
     "sync_interval_hours": "1",  # auto-sync every N hours; 0 = once daily at run_time
+    "fast_recheck_hours": "2",  # re-inspect a pushed URL this soon (fast lane)
     "auto_ai_analysis": "false",   # auto-analyze troubled properties after sync
     "auto_ai_max_per_run": "5",    # cap AI analyses per pipeline run
     "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
@@ -174,6 +175,7 @@ def _overview_data():
                 "last_run": state.get("last_run"),
                 "last_summary": state.get("last_summary"),
                 "last_error": state.get("last_error"),
+                "push_queued": store.queue_depth(conn),
                 "totals": totals, "props": all_props}
     finally:
         conn.close()
@@ -200,6 +202,7 @@ def current_config():
             "use_indexing_api": raw["use_indexing_api"] == "true",
             "indexing_action": raw["indexing_action"] or "URL_UPDATED",
             "submit_cooldown_hours": int(raw["submit_cooldown_hours"] or 48),
+            "fast_recheck_hours": float(raw["fast_recheck_hours"] or 2),
             "use_bing_api": raw["use_bing_api"] == "true",
             "use_indexnow": raw["use_indexnow"] == "true",
             "indexnow_key": raw["indexnow_key"] or "",
@@ -608,61 +611,14 @@ def bulk_action(pid):
             flash(f"Removed {len(urls)} URLs from tracking.", "ok")
         elif action == "push":
             if store.get_setting(conn, "use_indexing_api") != "true":
-                flash("Indexing API is disabled — enable it in Settings first.", "error")
+                flash("Indexing API is disabled \u2014 enable it in Settings first.", "error")
             else:
-                keys = parse_keys(store.get_setting(conn, "service_account_keys")) or \
-                       [store.get_setting(conn, "service_account_key")]
-                pushers = indexer.build_pushers([k for k in keys if k], True, conn)
-                if not pushers:
-                    flash("No valid service account keys.", "error")
+                act = store.get_setting(conn, "indexing_action", "URL_UPDATED") or "URL_UPDATED"
+                n = store.enqueue_push(conn, site, urls, act)
+                if n:
+                    flash(f"\u26a1 {n} URLs queued for instant push \u2014 sending in the background now.", "ok")
                 else:
-                    act = store.get_setting(conn, "indexing_action", "URL_UPDATED")
-                    ok, lock = 0, threading.Lock()
-                    urls = list(urls)
-                    denied = []
-                    i = 0
-                    while i < len(urls):
-                        u = urls[i]
-                        with lock:
-                            svc = next((x for x in pushers
-                                        if x["budget"] > 0 and x["key"] not in denied),
-                                       None)
-                            if svc:
-                                svc["budget"] -= 1
-                        if svc is None:
-                            if denied:
-                                flash("Push stopped: URL ownership not verified for "
-                                      f"{', '.join(denied)}. Add that key's service-account "
-                                      "email (see Settings) as Owner in Search Console.",
-                                      "error")
-                            else:
-                                flash("Indexing API daily budget exhausted.", "error")
-                            break
-                        try:
-                            gsc.publish_url(svc["svc"], u, act)
-                            store.mark_submitted(conn, site, u, f"manual-push:{act}")
-                            store.log_push(conn, svc["key"])
-                            ok += 1
-                            i += 1
-                        except Exception as e:  # noqa: BLE001
-                            if gsc.is_quota_error(e):
-                                # Fail over: retry the SAME url on the next
-                                # project's key.
-                                with lock:
-                                    svc["budget"] = 0
-                                continue
-                            if gsc.is_ownership_error(e):
-                                # This key's SA doesn't own this property —
-                                # try the next key for the same URL.
-                                denied.append(svc["key"])
-                                with lock:
-                                    svc["budget"] += 1  # refund
-                                continue
-                            with lock:
-                                svc["budget"] += 1
-                            flash(f"Push stopped ({svc['key']}): {e}", "error")
-                            break
-                    flash(f"Pushed {ok} URLs to the Indexing API.", "ok")
+                    flash("Those URLs are already queued for pushing.", "ok")
         elif action == "push-bing":
             if store.get_setting(conn, "use_bing_api") != "true" or not bing.bing_configured():
                 flash("Bing submission is disabled or BING_API_KEY is missing — see Settings.", "error")
@@ -1312,6 +1268,12 @@ try:
 except Exception:  # noqa: BLE001
     pass
 
+# Instant-push background worker (drains the push queue every 10s).
+try:
+    indexer.start_push_worker(DB_PATH)
+except Exception:  # noqa: BLE001
+    pass
+
 
 def _find_free_port(start=5000, tries=10):
     import socket
@@ -1330,6 +1292,7 @@ if __name__ == "__main__":
     schedule_pipeline()
     if not scheduler.running:
         scheduler.start()
+    indexer.start_push_worker(DB_PATH)
     port = _find_free_port(5000)
     print("=" * 56)
     print("  GSC Indexer is running!")

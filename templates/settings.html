@@ -54,6 +54,7 @@
     <div class="row" style="margin-top:6px">
       <div style="flex:1;min-width:140px"><label>Action</label><select name="indexing_action"><option {{ 'selected' if cfg.indexing_action=='URL_UPDATED' }}>URL_UPDATED</option><option {{ 'selected' if cfg.indexing_action=='URL_DELETED' }}>URL_DELETED</option></select></div>
       <div style="flex:1;min-width:140px"><label>Resubmit cooldown (hours)</label><input type="text" name="submit_cooldown_hours" value="{{ cfg.submit_cooldown_hours }}"></div>
+      <div style="flex:1;min-width:140px"><label>Fast re-check after push (hours)</label><input type="text" name="fast_recheck_hours" value="{{ cfg.fast_recheck_hours }}" title="Pushed URLs are auto re-inspected this soon"></div>
     </div>
     <div class="mut" style="margin-top:6px">Quota: 200/day per GCP project, auto-rotated across all keys above.</div>
     <h3>🔷 Bing &amp; IndexNow <span class="mut">(Bing Webmaster URL submission + IndexNow pings)</span></h3>

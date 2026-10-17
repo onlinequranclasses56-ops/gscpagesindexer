@@ -16,6 +16,7 @@ import argparse
 import os
 import re
 import threading
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -288,6 +289,8 @@ def run_property(cfg, db_path, prop, pushers, push_lock, key_path):
                     gsc.publish_url(svc["svc"], u, action)
                     store.mark_submitted(conn, site, u, f"indexing-api:{action}")
                     store.log_push(conn, svc["key"])
+                    store.schedule_recheck(conn, site, u,
+                                           cfg.get("fast_recheck_hours", 2))
                     pushed += 1
                     i += 1
                 except Exception as e:  # noqa: BLE001
@@ -379,6 +382,116 @@ def build_pushers(service_account_keys, use_indexing_api, conn=None):
         except Exception as e:  # noqa: BLE001
             print(f"  ! indexing service failed for {k}: {e}")
     return pushers
+
+
+def drain_push_queue(db_path, batch=200):
+    """Instant-push engine: drain the push queue with quota-aware
+    multi-project failover (429 parks the key, 403-ownership skips the key
+    for that property, same URL retried on the next key). Successful pushes
+    schedule a fast-lane re-check. Returns the number pushed. Never raises.
+    """
+    try:
+        conn = store.connect(db_path)
+    except Exception:  # noqa: BLE001
+        return 0
+    try:
+        if store.get_setting(conn, "use_indexing_api", "false") != "true":
+            return 0
+        raw_keys = store.get_setting(conn, "service_account_keys", "") or ""
+        keys = [k.strip() for k in raw_keys.replace(",", "\n").splitlines()
+                if k.strip()]
+        if not keys:
+            legacy = (store.get_setting(conn, "service_account_key", "") or "").strip()
+            keys = [legacy] if legacy else []
+        keys = [k for k in keys if k and os.path.exists(k)]
+        if not keys:
+            return 0
+        action_default = (store.get_setting(conn, "indexing_action", "URL_UPDATED")
+                          or "URL_UPDATED")
+        try:
+            recheck_h = float(store.get_setting(conn, "fast_recheck_hours", "2") or 2)
+        except ValueError:
+            recheck_h = 2
+        pushers = build_pushers(keys, True, conn)
+        if not pushers:
+            return 0
+        rows = conn.execute(
+            "SELECT id, property, url, action, attempts FROM push_queue "
+            "ORDER BY enqueued_at LIMIT ?", (batch,)).fetchall()
+        if not rows:
+            return 0
+        denied = set()  # (key, property) pairs failing the ownership check
+        pushed = 0
+        for r in rows:
+            site, url = r["property"], r["url"]
+            act = r["action"] or action_default
+            sent = False
+            for p in pushers:
+                if p["budget"] <= 0 or (p["key"], site) in denied:
+                    continue
+                p["budget"] -= 1
+                try:
+                    gsc.publish_url(p["svc"], url, act)
+                except Exception as e:  # noqa: BLE001
+                    if gsc.is_quota_error(e):
+                        p["budget"] = 0  # park this project; try next key
+                        continue
+                    if gsc.is_ownership_error(e):
+                        denied.add((p["key"], site))
+                        p["budget"] += 1  # refund; it may own other properties
+                        continue
+                    p["budget"] += 1  # refund on hard failure
+                    att = (r["attempts"] or 0) + 1
+                    if att >= 5:
+                        conn.execute("DELETE FROM push_queue WHERE id=?", (r["id"],))
+                    else:
+                        conn.execute("UPDATE push_queue SET attempts=? WHERE id=?",
+                                     (att, r["id"]))
+                    conn.commit()
+                    break
+                store.mark_submitted(conn, site, url, f"queue-push:{act}")
+                store.log_push(conn, p["key"])
+                store.schedule_recheck(conn, site, url, recheck_h)
+                conn.execute("DELETE FROM push_queue WHERE id=?", (r["id"],))
+                conn.commit()
+                pushed += 1
+                sent = True
+                break
+            if not sent:
+                if all(p["budget"] <= 0 for p in pushers):
+                    break  # quota exhausted everywhere; items stay queued
+                # every key denied for this property — ownership won't fix
+                # itself; count an attempt and move on (no head-of-line block)
+                att = (r["attempts"] or 0) + 1
+                if att >= 3:
+                    conn.execute("DELETE FROM push_queue WHERE id=?", (r["id"],))
+                else:
+                    conn.execute("UPDATE push_queue SET attempts=? WHERE id=?",
+                                 (att, r["id"]))
+                conn.commit()
+        return pushed
+    except Exception:  # noqa: BLE001
+        return 0
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def start_push_worker(db_path, interval=10):
+    """Start the background instant-push worker (daemon thread). Safe to
+    call at import under gunicorn; render.yaml pins --workers 1."""
+    def _loop():
+        while True:
+            try:
+                drain_push_queue(db_path)
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(interval)
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+    return t
 
 
 def main():

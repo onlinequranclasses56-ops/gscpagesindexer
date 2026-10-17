@@ -74,6 +74,18 @@ CREATE TABLE IF NOT EXISTS push_usage (
 );
 """
 
+SCHEMA_QUEUE = """
+CREATE TABLE IF NOT EXISTS push_queue (
+    id INTEGER PRIMARY KEY,
+    property TEXT NOT NULL,
+    url TEXT NOT NULL,
+    action TEXT NOT NULL DEFAULT 'URL_UPDATED',
+    enqueued_at TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(property, url)
+);
+"""
+
 
 def quota_day():
     """Google's Indexing API quota window resets at midnight Pacific Time."""
@@ -122,6 +134,7 @@ def connect(path):
     conn.execute(SCHEMA_SLOTS)
     conn.execute(SCHEMA_AI)
     conn.execute(SCHEMA_PUSH_USAGE)
+    conn.execute(SCHEMA_QUEUE)
     # migrate: priority column for DBs created by older versions
     cols = [r[1] for r in conn.execute("PRAGMA table_info(urls)").fetchall()]
     if "priority" not in cols:
@@ -142,6 +155,9 @@ def connect(path):
     pcols = [r[1] for r in conn.execute("PRAGMA table_info(properties)").fetchall()]
     if "push_only" not in pcols:
         conn.execute("ALTER TABLE properties ADD COLUMN push_only INTEGER NOT NULL DEFAULT 0")
+    # migrate: fast-lane re-check timestamp (re-inspect soon after a push)
+    if "recheck_after" not in cols:
+        conn.execute("ALTER TABLE urls ADD COLUMN recheck_after TEXT")
     # indexes for 100-property scale
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_urls_lookup "
@@ -332,11 +348,48 @@ def restore_url_forms(conn, prop, true_urls):
 
 def mark_checked(conn, prop, url, indexed, index_state):
     conn.execute(
-        "UPDATE urls SET last_checked=?, indexed=?, index_state=? "
-        "WHERE property=? AND url=?",
+        "UPDATE urls SET last_checked=?, indexed=?, index_state=?, "
+        "recheck_after=NULL WHERE property=? AND url=?",
         (utcnow(), 1 if indexed else 0, index_state, prop, url),
     )
     conn.commit()
+
+
+def schedule_recheck(conn, prop, url, hours=2):
+    """Fast-lane: re-inspect this URL soon after a push to surface the
+    result quickly (instead of waiting for the stale threshold)."""
+    try:
+        minutes = max(1, int(float(hours) * 60))
+    except (TypeError, ValueError):
+        minutes = 120
+    conn.execute(
+        "UPDATE urls SET recheck_after=datetime('now', ?) WHERE property=? AND url=?",
+        (f"+{minutes} minutes", prop, url),
+    )
+    conn.commit()
+
+
+def enqueue_push(conn, prop, urls, action="URL_UPDATED"):
+    """Queue URLs for the background instant-push worker. Dedups; returns
+    the number of newly queued URLs."""
+    now = utcnow()
+    added = 0
+    for u in dict.fromkeys((x or "").strip() for x in urls or ()):
+        if not u:
+            continue
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO push_queue(property, url, action, enqueued_at)"
+            " VALUES(?,?,?,?)",
+            (prop, u, action or "URL_UPDATED", now),
+        )
+        added += cur.rowcount
+    conn.commit()
+    return added
+
+
+def queue_depth(conn):
+    cur = conn.execute("SELECT COUNT(*) FROM push_queue")
+    return cur.fetchone()[0]
 
 
 def mark_submitted(conn, prop, url, note=""):
@@ -391,10 +444,15 @@ def candidates_for_indexnow(conn, prop, limit):
 
 
 def candidates_for_inspection(conn, prop, limit, stale_hours=72):
+    """URLs needing (re-)inspection: never checked, stale, or due for a
+    fast-lane re-check after a push. Fast-lane URLs jump the queue."""
     cur = conn.execute(
         """SELECT url FROM urls WHERE property=?
-           AND (last_checked IS NULL OR last_checked < datetime('now', ?))
-           ORDER BY priority DESC, last_checked NULLS FIRST LIMIT ?""",
+           AND (last_checked IS NULL OR last_checked < datetime('now', ?)
+                OR (recheck_after IS NOT NULL AND recheck_after <= datetime('now')))
+           ORDER BY (recheck_after IS NOT NULL
+                     AND recheck_after <= datetime('now')) DESC,
+                    priority DESC, last_checked NULLS FIRST LIMIT ?""",
         (prop, f"-{stale_hours} hours", limit),
     )
     return [r[0] for r in cur.fetchall()]

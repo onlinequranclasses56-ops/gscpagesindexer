@@ -5,6 +5,7 @@
   <h1>Dashboard</h1>
   <div class="row">
     <span id="runpill" class="badge b-ok" {% if not state.running %}style="display:none"{% endif %}>🔄 Syncing…</span>
+    <span id="queuepill" class="badge b-mut" style="display:none" title="URLs waiting in the instant-push queue"></span>
     <button type="button" class="btn sm ghost" id="freshbtn" title="Refresh dashboard data now">🔄 Fresh</button>
     <form method="post" action="/run-all" style="margin:0"><button class="btn" {% if state.running %}disabled{% endif %}>▶ Run all now</button></form>
   </div>
@@ -111,6 +112,8 @@ async function refreshOverview(){
     const tb=document.getElementById('tot-bar');if(tb)tb.style.width=d.totals.pct+'%';
     set('tot-counts',d.totals.indexed+' / '+d.totals.urls);
     const pill=document.getElementById('runpill');if(pill)pill.style.display=d.running?'':'none';
+    const qp=document.getElementById('queuepill');
+    if(qp){if(d.push_queued){qp.style.display='';qp.textContent='⚡ '+d.push_queued+' queued';}else qp.style.display='none';}
     const ls=document.getElementById('lastsummary');
     if(ls){
       if(d.last_summary){ls.style.display='';ls.textContent=d.last_summary+(d.last_run?' ('+d.last_run.slice(0,16).replace('T',' ')+')':'');}
