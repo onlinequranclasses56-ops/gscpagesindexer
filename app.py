@@ -89,7 +89,7 @@ DEFAULT_SETTINGS = {
     "service_account_keys": "",     # one key path per line (multi-project)
     "db_path": os.path.join(APP_DIR, "indexing.db"),
     "daily_inspection_cap_per_property": "1500",
-    "inspection_stale_hours": "72",
+    "inspection_stale_hours": "12",
     "inspection_workers": "6",
     "property_workers": "3",
     "use_indexing_api": "false",
@@ -97,6 +97,7 @@ DEFAULT_SETTINGS = {
     "submit_cooldown_hours": "48",
     "manual_daily_cap": "10",
     "run_time": "09:00",
+    "sync_interval_hours": "1",  # auto-sync every N hours; 0 = once daily at run_time
     "auto_ai_analysis": "false",   # auto-analyze troubled properties after sync
     "auto_ai_max_per_run": "5",    # cap AI analyses per pipeline run
     "ai_reanalyze_days": "7",      # don't re-analyze a property sooner than this
@@ -990,7 +991,7 @@ def settings():
                     elif key in form:
                         store.set_setting(conn, key, form.get(key, "").strip())
                 flash("Settings saved.", "ok")
-                schedule_daily()
+                schedule_pipeline()
             return redirect(url_for("settings"))
         cfg = {k: store.get_setting(conn, k, d)
                for k, d in DEFAULT_SETTINGS.items()}
@@ -1263,23 +1264,49 @@ def deep_crawl(pid):
 scheduler = BackgroundScheduler()
 
 
-def schedule_daily():
+def _migrate_freshness_defaults():
+    """One-time: move untouched old defaults to max-freshness values.
+
+    Only touches values the user never changed (old defaults), so a
+    deliberate custom setting is never overwritten. Idempotent.
+    """
     conn = db()
     try:
-        rt = store.get_setting(conn, "run_time", "09:00") or "09:00"
-        h, m = (int(x) for x in rt.split(":"))
-        scheduler.remove_all_jobs()
-        scheduler.add_job(run_pipeline, "cron", hour=h, minute=m, id="daily")
+        if (store.get_setting(conn, "inspection_stale_hours", "") or "") == "72":
+            store.set_setting(conn, "inspection_stale_hours", "12")
+        if not (store.get_setting(conn, "sync_interval_hours", "") or ""):
+            store.set_setting(conn, "sync_interval_hours", "1")
     except Exception:  # noqa: BLE001
         pass
     finally:
         conn.close()
 
 
-# Start the daily scheduler even under gunicorn (which imports this module but
+def schedule_pipeline():
+    conn = db()
+    try:
+        try:
+            interval = float(store.get_setting(conn, "sync_interval_hours", "1") or "1")
+        except ValueError:
+            interval = 1
+        scheduler.remove_all_jobs()
+        if interval > 0:
+            scheduler.add_job(run_pipeline, "interval", hours=interval, id="daily")
+        else:
+            rt = store.get_setting(conn, "run_time", "09:00") or "09:00"
+            h, m = (int(x) for x in rt.split(":"))
+            scheduler.add_job(run_pipeline, "cron", hour=h, minute=m, id="daily")
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        conn.close()
+
+
+# Start the scheduler even under gunicorn (which imports this module but
 # never runs __main__). render.yaml pins --workers 1 so it runs exactly once.
 try:
-    schedule_daily()
+    _migrate_freshness_defaults()
+    schedule_pipeline()
     if not scheduler.running:
         scheduler.start()
 except Exception:  # noqa: BLE001
@@ -1300,7 +1327,7 @@ def _find_free_port(start=5000, tries=10):
 
 if __name__ == "__main__":
     seed_from_config()
-    schedule_daily()
+    schedule_pipeline()
     if not scheduler.running:
         scheduler.start()
     port = _find_free_port(5000)

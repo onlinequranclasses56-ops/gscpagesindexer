@@ -45,7 +45,8 @@
       <div style="flex:1;min-width:140px"><label>Properties in parallel</label><input type="text" name="property_workers" value="{{ cfg.property_workers }}"></div>
     </div>
     <div class="row" style="margin-top:10px">
-      <div style="flex:1;min-width:140px"><label>Daily run time</label><input type="time" name="run_time" value="{{ cfg.run_time }}"></div>
+      <div style="flex:1;min-width:140px"><label>Auto-sync every (hours)</label><input type="text" name="sync_interval_hours" value="{{ cfg.sync_interval_hours }}" title="Pipeline runs automatically this often. 0 = once daily at the run time."></div>
+      <div style="flex:1;min-width:140px"><label>Daily run time (if interval = 0)</label><input type="time" name="run_time" value="{{ cfg.run_time }}"></div>
       <div style="flex:1;min-width:140px"><label>Manual request slots / 24h</label><input type="text" name="manual_daily_cap" value="{{ cfg.manual_daily_cap }}"></div>
     </div>
     <h3>Indexing API <span class="mut">(officially: JobPosting / BroadcastEvent pages only)</span></h3>
